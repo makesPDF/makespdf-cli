@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.local
+
+# Generated at build time from skills/pdf-template-author.md
+src/embedded-skill.ts

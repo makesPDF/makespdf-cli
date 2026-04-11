@@ -1,0 +1,58 @@
+{
+  "name": "@makespdf/cli",
+  "version": "0.1.0",
+  "description": "Command-line interface for makesPDF — convert markdown and templates to PDF from the terminal.",
+  "keywords": [
+    "pdf",
+    "cli",
+    "markdown",
+    "makespdf",
+    "tagged-pdf",
+    "pdf-a",
+    "pdf-ua"
+  ],
+  "license": "MIT",
+  "author": "makesPDF",
+  "homepage": "https://makespdf.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/makesPDF/makespdf-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/makesPDF/makespdf-cli/issues"
+  },
+  "type": "module",
+  "bin": {
+    "makespdf": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "bake-skill": "node scripts/bake-skill.mjs",
+    "prebuild": "pnpm bake-skill",
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "citty": "^0.1.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

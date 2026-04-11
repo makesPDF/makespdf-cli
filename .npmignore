@@ -1,0 +1,9 @@
+src/
+scripts/
+skills/
+tsconfig.json
+tsup.config.ts
+vitest.config.ts
+.github/
+.gitignore
+*.test.ts
