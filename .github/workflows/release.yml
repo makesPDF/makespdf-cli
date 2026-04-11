@@ -48,10 +48,12 @@ jobs:
       # attestation via sigstore. Separate from trusted publishing, but both
       # work together — you want both.
       #
-      # Note: using `npm publish` directly (not `pnpm publish`) so the OIDC
-      # token exchange goes through the npm client that actually implements
-      # trusted publishing.
+      # `changeset publish --no-git-tag` is the correct command when the
+      # workflow is tag-triggered: the tag already exists (pushed by the
+      # local `pnpm release` script), so changesets must not try to create
+      # another one. Changesets invokes `npm publish` under the hood, which
+      # is the npm client that implements OIDC trusted publishing.
       - name: Publish to npm
-        run: npm publish --access public
+        run: pnpm exec changeset publish --no-git-tag
         env:
           NPM_CONFIG_PROVENANCE: "true"
