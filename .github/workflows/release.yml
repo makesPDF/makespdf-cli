@@ -9,23 +9,31 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # id-token: write is required for OIDC trusted publishing to npm.
+      # This lets the publish step exchange a short-lived GitHub Actions
+      # OIDC token for an npm publish token — no long-lived NPM_TOKEN
+      # secret exists anywhere.
       id-token: write
-    steps:
-      - uses: actions/checkout@v4
+      contents: read
 
-      - uses: pnpm/action-setup@v4
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v5
         with:
           version: 10
 
-      - uses: actions/setup-node@v4
+      # Node 24, NOT 22. npm trusted publishing requires npm >= 11.5.1,
+      # and Node 22 LTS is permanently stuck on npm 10.9.x. Latest Node 24
+      # ships with npm 11.11.0.
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
-          cache: pnpm
+          node-version: 24
           registry-url: https://registry.npmjs.org
+          cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Typecheck
         run: pnpm typecheck
@@ -36,7 +44,14 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # NPM_CONFIG_PROVENANCE=true stamps the package with a SLSA provenance
+      # attestation via sigstore. Separate from trusted publishing, but both
+      # work together — you want both.
+      #
+      # Note: using `npm publish` directly (not `pnpm publish`) so the OIDC
+      # token exchange goes through the npm client that actually implements
+      # trusted publishing.
       - name: Publish to npm
-        run: pnpm publish --no-git-checks --access public --provenance
+        run: npm publish --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

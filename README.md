@@ -148,6 +148,52 @@ The CLI is intentionally agent-friendly:
 - Stable exit codes for reliable error handling.
 - Single self-contained binary — no runtime filesystem reads of ancillary files.
 
+## Releasing
+
+Releases are published from GitHub Actions via **npm OIDC trusted publishing** — no `NPM_TOKEN` is stored anywhere. The publish step exchanges a short-lived GitHub OIDC token for an npm publish token at the moment of publish, and stamps the package with a SLSA provenance attestation (the "Built and signed on GitHub Actions" badge on npmjs.com).
+
+To cut a release:
+
+```bash
+# 1. Bump the version in package.json (e.g. 0.1.0 → 0.1.1)
+# 2. Commit the bump on main
+git commit -am "release: v0.1.1"
+git push
+
+# 3. Tag and push — the tag push triggers .github/workflows/release.yml
+git tag -a v0.1.1 -m "Version 0.1.1"
+git push origin v0.1.1
+```
+
+### If the release workflow fails
+
+The tag is pushed but publish failed before the OIDC token was minted. Fix, re-tag, re-push:
+
+```bash
+# Delete the tag locally and on the remote
+git tag -d v0.1.1
+git push origin :refs/tags/v0.1.1
+
+# Fix the issue, commit on main
+git commit -am "fix(ci): ..."
+git push origin main
+
+# Re-tag HEAD with the SAME version number and re-push
+git tag -a v0.1.1 -m "Version 0.1.1"
+git push origin v0.1.1
+```
+
+### Bootstrap note
+
+Trusted publishing cannot bootstrap a new package name — the first `v0.1.0` must be published manually from a local machine with `npm publish --access public`. After that, the npmjs.com **Settings → Trusted Publisher** panel is configured with:
+
+- Organization: `makesPDF`
+- Repository: `makespdf-cli`
+- Workflow filename: `release.yml` (basename only — not a full path)
+- Environment: (blank)
+
+Every subsequent release goes through the workflow.
+
 ## License
 
 MIT © makesPDF
