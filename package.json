@@ -39,6 +39,8 @@
   "scripts": {
     "bake-skill": "node scripts/bake-skill.mjs",
     "prebuild": "pnpm bake-skill",
+    "pretypecheck": "pnpm bake-skill",
+    "pretest": "pnpm bake-skill",
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
