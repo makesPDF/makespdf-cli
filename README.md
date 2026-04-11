@@ -73,7 +73,7 @@ Exits with code `1` if any errors are found (warnings do not fail).
 | `--json` | Emit the validator's raw JSON response. |
 
 ### `makespdf login`
-Browser-based sign-in. Opens a browser to `makespdf.com/cli/auth`, starts a local loopback HTTP listener on a random port in `40000-49999`, and receives an API key via callback. The key is saved to `~/.config/makespdf/config.json` with mode `0600`.
+Browser-based sign-in via the OAuth 2.0 device authorization flow ([RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)) — the same pattern GitHub CLI and `gcloud auth` use. Requests a short user code from the server, opens `makespdf.com/device?code=...` in your browser, and polls until you approve. No local HTTP listener, no firewall prompts. Works on headless machines too — pass `--no-browser` and open the URL on any device. The resulting API key is saved to `~/.config/makespdf/config.json` with mode `0600`.
 
 ### `makespdf auth <key>`
 Non-interactive auth for CI or headless environments. Paste an API key generated at [makespdf.com/settings/api-keys](https://makespdf.com/settings/api-keys). Same config file, same permissions.
