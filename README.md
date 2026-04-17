@@ -26,11 +26,19 @@ makespdf md report.md -o report.pdf
 # 3. Or pipe markdown in and binary PDF out.
 echo "# Hello" | makespdf md - > hello.pdf
 
-# 4. Iterate on a template.
+# 4. Iterate on a template (free, watermarked draft output).
 makespdf validate template.js            # cheap pre-flight check
-makespdf preview template.js --data data.json -o out.pdf
+makespdf preview template.js --data data.json -o draft.pdf
 
-# 5. Drop the AI skill into your editor for template-authoring help.
+# 5. Save the template, then render it with real data (billed).
+curl -X POST https://makespdf.com/api/v1/templates \
+  -H "Authorization: Bearer $MAKESPDF_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"invoice\",\"dsl\":$(jq -Rs . < template.js)}"
+# → { "templateId": "…uuid…", … }
+makespdf render <templateId> --data data.json -o invoice.pdf
+
+# 6. Drop the AI skill into your editor for template-authoring help.
 makespdf skill > .cursor/rules/makespdf.md
 ```
 
@@ -59,6 +67,29 @@ Render a template to PDF. Template type is auto-detected by extension:
 | `--data <path\|json>` | Path to a JSON data file **or** an inline `'{"...": "..."}'`. If omitted, uses the DSL script's `sampleData`. |
 | `--title <string>` | Document title. |
 | `--json` | Return JSON metadata. |
+
+### `makespdf render <templateId> [options]`
+Render a saved template by ID via `POST /api/v1/render`. The production / publish counterpart to `preview`: same deterministic pipeline, but reads the DSL from a template you've already saved via `POST /api/v1/templates` and **bills 1 credit per 10 pages** on success. No watermark, no preview-filler substitution.
+
+| Flag | Description |
+|---|---|
+| `-o, --out <path>` | Write PDF to this file. |
+| `--data <path\|json>` | Path to a JSON data file **or** an inline `'{"...": "..."}'`. If omitted, the template's `sampleData` is used. |
+| `--title <string>` | Document title used in PDF metadata. |
+| `--json` | Return JSON metadata instead of binary PDF. |
+
+Billing headers (`X-Credits-Deducted`, `X-Credits-Remaining`) from the response are written to stderr as `credits: deducted N, remaining M`. Failures (400/402/404/429) never deduct credits and the API error body is surfaced as an error.
+
+Typical flow — iterate for free, then save + render for billed output:
+```bash
+makespdf preview template.js --data data.json -o draft.pdf   # free, watermarked
+# Save it (no CLI wrapper yet):
+curl -X POST https://makespdf.com/api/v1/templates \
+  -H "Authorization: Bearer $MAKESPDF_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"invoice\",\"dsl\":$(jq -Rs . < template.js)}"
+makespdf render <templateId> --data data.json -o invoice.pdf  # billed, clean PDF
+```
 
 ### `makespdf validate <file> [options]`
 Pre-flight check. Catches unknown tags, invalid nesting, missing row widths, and PDF/UA-1 accessibility issues (missing alt text, heading hierarchy). **Does not render.**

@@ -56,6 +56,11 @@ export interface PostOptions {
    *   - "json":            parses response JSON and returns it.
    */
   expect?: "bytes" | "json";
+  /**
+   * Called with the raw Response before the body is read, so callers can
+   * inspect headers (e.g. billing) without changing the return shape.
+   */
+  onResponse?: (response: Response) => void;
 }
 
 export class ApiClient {
@@ -95,6 +100,8 @@ export class ApiClient {
       const text = await response.text().catch(() => "");
       throw new ApiError(response.status, text, url);
     }
+
+    opts.onResponse?.(response);
 
     if (expect === "json") {
       return (await response.json()) as T;

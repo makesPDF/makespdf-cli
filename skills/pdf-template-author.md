@@ -31,20 +31,37 @@ What do you have?
 ├── Markdown with `---` slide breaks for LinkedIn?
 │     → POST /api/v1/carousel         (~100ms, no AI)
 │
-├── Structured data for a common doc type
-│   (invoice, receipt, quote, cv, statement, certificate, letter)?
-│     → POST /api/v1/render { type, data }   (~20s, AI auto-generates template)
-│       Fastest path to a working PDF — no DSL to write. Template quality
-│       varies; re-run for alternatives.
+├── Authoring / iterating on a template with inline DSL (free)?
+│     → POST /api/v1/preview { dsl, data }   (~100ms, deterministic)
+│       Full control. Write the DSL yourself (this skill teaches you how).
 │
-└── Custom layout, brand-specific, or data doesn't fit a standard type?
-      → POST /api/v1/preview { dsl, data }   (~100ms, deterministic)
-        Full control. Write the DSL yourself (this skill teaches you how).
+└── Have a saved templateId and want to render it with data (billed)?
+      → POST /api/v1/render { templateId, data }   (~100ms, deterministic)
+        Production path once the DSL is stable. Same pipeline as /preview,
+        different input source. Requires an API key or session cookie and
+        ownership of the template.
 ```
 
-**Rule of thumb:** `/md` for docs, `/render` for quick starts on standard
-types, `/preview` when you want pixel control. The rest of this document
-teaches the DSL used by `/preview`.
+**Rule of thumb:** `/md` for docs, `/preview` while you're still shaping
+the DSL, `/render` once the template is saved and you're producing
+billable PDFs from it. The rest of this document teaches the DSL used by
+both `/preview` and `/render`.
+
+**`/preview` is draft-only.** To stop callers from treating preview
+output as a final deliverable, every preview render (a) replaces string
+values in `data` with length-preserving filler — numbers, booleans,
+ISO-like dates, and numeric-looking strings pass through untouched, and
+hardcoded labels inside the DSL are always verbatim — and (b) bakes a
+diagonal "PREVIEW — NOT FOR USE" overlay into the content stream.
+Layout breakages still surface at realistic widths so authoring feedback
+stays useful, but the PDF is not usable as a production artifact. When
+you want real data in the output, save the template
+(`POST /api/v1/templates`) and call `/render` against it.
+
+**Deprecated:** the old `POST /api/v1/render { type, data }` contract
+(AI auto-generates a template) has been removed as part of the draft/
+publish split. `/render` now exclusively accepts `{ templateId, data }`
+against a template you saved via `POST /api/v1/templates`.
 
 ## When to use this skill (vs. Markdown)
 
@@ -82,15 +99,21 @@ occasional emphasis is a perfectly reasonable DSL document — use
 
 ### `/api/v1/preview` vs `/api/v1/render`
 
-This skill teaches `POST /api/v1/preview` — hand-authored DSL → PDF in
-~100ms, no AI call, deterministic.
+Both endpoints run the same deterministic DSL → PDF pipeline (~100ms, no
+AI). They differ only in what the caller supplies and how billing works:
 
-There is also `POST /api/v1/render` which runs an AI pipeline to generate
-a template from a `type=` and data in ~20s. **Prefer `/api/v1/preview`
-when you can author the DSL yourself.** `/render` is a fallback for agents
-without the time or tokens to write DSL — it's slower, less reliable, and
-its output isn't always production-quality for structured docs like
-invoices, statements, and résumés.
+- **`POST /api/v1/preview { dsl, data }`** — pass the DSL source inline.
+  The authoring / draft endpoint. Free (no credits deducted). Use while
+  iterating on a template.
+- **`POST /api/v1/render { templateId, data }`** — render a template
+  you previously saved via `POST /api/v1/templates`. The production /
+  publish endpoint. **Billed** (1 credit per 10 pages). Requires API-key
+  or session auth; returns 404 for unknown or non-owned `templateId`.
+
+Typical flow for an agent:
+1. Draft the DSL and iterate with `/preview` until it looks right.
+2. `POST /api/v1/templates { dsl, name }` → `{ templateId }` (free).
+3. Render N times with `POST /api/v1/render { templateId, data }` (billed).
 
 ## Output Format
 
@@ -157,10 +180,7 @@ emits inline spans that flow on a wrapped line. Combine with `when("!@last", …
 for separator suppression:
 
 ```js
-text(each("a in authors",
-  s("{{a.name}}"),
-  when("!@last", s(", "))
-))
+text(each("a in authors", s("{{a.name}}"), when("!@last", s(", "))));
 // → "Marie Curie, Alan Turing, Ada Lovelace"
 ```
 
@@ -170,18 +190,18 @@ Inline-text shortcuts (`bold`, `italic`, …) each return a single `span`
 Element. They compose inside `text(...)` blocks for mid-paragraph emphasis
 and word-wrapping is preserved across line breaks.
 
-| Function                 | Purpose                                                                                   |
-| ------------------------ | ----------------------------------------------------------------------------------------- |
-| `bold(text, size?)`      | Bold span (optional font size)                                                            |
-| `italic(text, size?)`    | Italic span                                                                               |
-| `underline(text)`        | Underlined span                                                                           |
-| `mono(text)`             | Monospace (Cousine) span — equivalent to inline code                                      |
-| `colored(text, "#hex")`  | Coloured span                                                                             |
-| `link(href, text?)`      | Clickable link span (underline + accent colour). Omitting `text` uses the URL as the text |
-| `muted(text)`            | Small gray caption (8pt, #666)                                                            |
-| `hr(margin?, color?)`    | Horizontal divider (default 8pt margin, #d1d5db)                                          |
-| `gap(height?)`           | Vertical spacing (default 8pt)                                                            |
-| `pageNum()`              | Returns `["Page ", thisPage(), " of ", totalPages()]`                                     |
+| Function                | Purpose                                                                                   |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `bold(text, size?)`     | Bold span (optional font size)                                                            |
+| `italic(text, size?)`   | Italic span                                                                               |
+| `underline(text)`       | Underlined span                                                                           |
+| `mono(text)`            | Monospace (Cousine) span — equivalent to inline code                                      |
+| `colored(text, "#hex")` | Coloured span                                                                             |
+| `link(href, text?)`     | Clickable link span (underline + accent colour). Omitting `text` uses the URL as the text |
+| `muted(text)`           | Small gray caption (8pt, #666)                                                            |
+| `hr(margin?, color?)`   | Horizontal divider (default 8pt margin, #d1d5db)                                          |
+| `gap(height?)`          | Vertical spacing (default 8pt)                                                            |
+| `pageNum()`             | Returns `["Page ", thisPage(), " of ", totalPages()]`                                     |
 
 **Note on strikethrough:** There is no `strike()` atom — the layout engine's
 `text-decoration` property currently only supports `underline`. If you need
@@ -203,30 +223,30 @@ helper. Use `text(...)` only when you want an explicit inline-text block
 `text()` inside molecules that already take Elements — it nests a text
 block inside a span and produces surprising output.
 
-| Function                             | Purpose                                                                                        |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `lv(label, value, labelWidth?)`      | Inline label-value row (default 35%/65%)                                                       |
-| `slv(label, value)`                  | Stacked label over value                                                                       |
-| `addr(lines)`                        | Address block. `lines` is an array of strings or inline Elements (e.g. `bold("Premium Div")`)  |
-| `addrR(lines)`                       | Right-aligned address block — same widening                                                    |
-| `th(label, width, align?)`           | Table header cell                                                                              |
-| `td(value, width, align?)`           | Table data cell                                                                                |
-| `totRow(label, value, bold?, grid?)` | Totals row. Without grid: 60%/25%/15%. With grid: uses colspan to align with table columns     |
-| `totLine(text)`                      | Combined totals line (65% spacer + 35% right-aligned)                                          |
-| `bullet(text)`                       | Bullet point                                                                                   |
+| Function                             | Purpose                                                                                       |
+| ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `lv(label, value, labelWidth?)`      | Inline label-value row (default 35%/65%)                                                      |
+| `slv(label, value)`                  | Stacked label over value                                                                      |
+| `addr(lines)`                        | Address block. `lines` is an array of strings or inline Elements (e.g. `bold("Premium Div")`) |
+| `addrR(lines)`                       | Right-aligned address block — same widening                                                   |
+| `th(label, width, align?)`           | Table header cell                                                                             |
+| `td(value, width, align?)`           | Table data cell                                                                               |
+| `totRow(label, value, bold?, grid?)` | Totals row. Without grid: 60%/25%/15%. With grid: uses colspan to align with table columns    |
+| `totLine(text)`                      | Combined totals line (65% spacer + 35% right-aligned)                                         |
+| `bullet(text)`                       | Bullet point                                                                                  |
 
 ### Organisms
 
-| Function                       | Purpose                                                                                                         |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `minHdr(title, company)`       | Minimal header (title left, company right). `title`/`company` accept strings or inline Element(s)               |
-| `lvGrid(pairs[], labelWidth?)` | Label-value grid from `[label, value][]` pairs — label/value accept strings or inline Element(s)                |
-| `addrs(from, to)`              | Two-column addresses. Each: `{ label, lines[] }`. Labels and each line accept strings or inline Element(s)      |
+| Function                       | Purpose                                                                                                                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `minHdr(title, company)`       | Minimal header (title left, company right). `title`/`company` accept strings or inline Element(s)                                                                    |
+| `lvGrid(pairs[], labelWidth?)` | Label-value grid from `[label, value][]` pairs — label/value accept strings or inline Element(s)                                                                     |
+| `addrs(from, to)`              | Two-column addresses. Each: `{ label, lines[] }`. Labels and each line accept strings or inline Element(s)                                                           |
 | `table(cols, loopExpr, cells)` | Data table with header + loop. `cols`/`cells`: `[content, width, align?][]` where `content` is a string, an inline Element, or an array of either. Sets grid on rows |
-| `totals(rows, cols?)`          | Totals section. `rows`: `[label, value, bold?][]`. Labels/values accept strings or Element(s). Pass cols for grid+colspan |
-| `ftrPages(company?)`           | Footer with page numbers (and optional company name — string or Element(s))                                     |
-| `terms(heading, content)`      | Terms/notes block. `heading`/`content` accept strings or inline Element(s) — ideal for prose paragraphs with emphasis |
-| `sigBlock()`                   | Signature lines (two side-by-side)                                                                              |
+| `totals(rows, cols?)`          | Totals section. `rows`: `[label, value, bold?][]`. Labels/values accept strings or Element(s). Pass cols for grid+colspan                                            |
+| `ftrPages(company?)`           | Footer with page numbers (and optional company name — string or Element(s))                                                                                          |
+| `terms(heading, content)`      | Terms/notes block. `heading`/`content` accept strings or inline Element(s) — ideal for prose paragraphs with emphasis                                                |
+| `sigBlock()`                   | Signature lines (two side-by-side)                                                                                                                                   |
 
 ---
 
@@ -307,16 +327,40 @@ r(
 
 Pipe a value through a filter to format it using the `|` syntax inside `{{…}}`:
 
-| Filter     | Input  | Output      | Notes                                          |
-| ---------- | ------ | ----------- | ---------------------------------------------- |
-| `currency` | number | `$1,234.50` | Intl.NumberFormat USD, 2 decimal places.       |
-| `number`   | number | `1,234`     | Intl.NumberFormat en-US, thousands separator.  |
+| Filter                             | Input  | Output       | Notes                                                                                     |
+| ---------------------------------- | ------ | ------------ | ----------------------------------------------------------------------------------------- |
+| `currency`                         | number | `$1,234.50`  | Defaults to USD. Set a doc-wide default with `doc({ currency: "AUD" }, …)`.               |
+| `currency:<ISO code>`              | number | `A$1,234.50` | Per-call override. Accepts any ISO 4217 code (AUD, GBP, EUR, JPY, NZD, CAD, CHF, INR, …). |
+| `currency:<ISO code>:<locale tag>` | number | `1.234,50 €` | Optional locale override (e.g. `de-DE`, `fr-FR`). Default locale is `en-US`.              |
+| `number`                           | number | `1,234`      | Intl.NumberFormat en-US, thousands separator.                                             |
 
 Examples:
 
-- `"{{amount | currency}}"` → `"$1,234.50"`
+- `"{{amount | currency}}"` → `"$1,234.50"` (USD default)
+- `"{{amount | currency:AUD}}"` → `"A$1,234.50"` (AUD with `A$` disambiguation)
+- `"{{amount | currency:GBP}}"` → `"£1,234.50"`
+- `"{{amount | currency:EUR}}"` → `"€1,234.50"`
+- `"{{amount | currency:JPY}}"` → `"¥1,234"` (JPY has no fraction digits)
+- `"{{amount | currency:EUR:de-DE}}"` → `"1.234,50 €"` (German locale)
 - `"Total: {{total | currency}}"` → `"Total: $15,114.00"`
 - `"{{item.qty | number}}"` → `"1,234"`
+
+**Doc-wide default.** Pass `currency` in the `doc({ … })` options to set the
+default for bare `{{ x | currency }}` calls — useful for whole-document
+locales (e.g. an Australian invoice). Per-call overrides still win.
+
+```js
+doc(
+  { size: "A4", currency: "AUD" },
+  page(
+    s("Total: {{total | currency}}"), // → "Total: A$1,234.50"
+    s("USD equivalent: {{usd | currency:USD}}") // → "USD equivalent: $800.00"
+  )
+);
+```
+
+Unknown ISO codes (`currency:XYZ`) emit an `unknown-currency-code` warning
+and fall back to USD.
 
 **Method calls are not supported.** Expressions like `{{amount.toFixed(2)}}`
 evaluate to `undefined` and render as the literal string `undefined`. Use
@@ -332,7 +376,16 @@ engine handles it.
 
 ## Style Properties
 
-Available in inline style objects (e.g. `col({ "font-size": 12, width: "50%" }, ...)`):
+> ⚠️ **Style property names are kebab-case, not camelCase.** Even though the
+> DSL is JavaScript-like, style property names follow CSS conventions:
+> `"font-size"`, `"font-weight"`, `"line-height"`, `"background-color"`,
+> `"border-color"`, `"border-radius"`, `"text-decoration"`. Using camelCase
+> (`fontSize`, `fontWeight`, `backgroundColor`) produces
+> `unknown-style-property` warnings and the styles **will not apply** — the
+> element renders with the default instead. Always quote kebab-case keys:
+> `{ "font-size": 12 }`, not `{ fontSize: 12 }`.
+
+Available in inline style objects (e.g. `col({ "font-size": 12, width: "50%" }, ...)` — kebab-case, not `fontSize`):
 
 | Property           | Values                                                                     |
 | ------------------ | -------------------------------------------------------------------------- |
@@ -420,36 +473,46 @@ ftrPages("{{company.name}}")
 // Columns are percentages of page content-area width (minus padding) and
 // should sum to exactly 100%.
 const cols = [
-  ["Date",        "18%"],  // 18% min at default padding -- full-format dates wrap below this
+  ["Date", "18%"], // 18% min at default padding -- full-format dates wrap below this
   ["Description", "42%"],
-  ["Debit",       "13%", "right"],
-  ["Credit",      "13%", "right"],
-  ["Balance",     "14%", "right"],
+  ["Debit", "13%", "right"],
+  ["Credit", "13%", "right"],
+  ["Balance", "14%", "right"],
 ];
 
-minHdr("Statement", "{{company.name}}")
-lvGrid([["Period:", "{{period}}"], ["Account:", "{{accountNumber}}"]])
+minHdr("Statement", "{{company.name}}");
+lvGrid([
+  ["Period:", "{{period}}"],
+  ["Account:", "{{accountNumber}}"],
+]);
 // Optional summary box:
-col({ border: [1,1,1,1], "border-color": "#d1d5db", "border-radius": 4, padding: [10,12,10,12] },
-  bold([ "Opening Balance: ", "{{openingBalance | currency}}" ]),
-  s([    "Closing Balance: ", "{{closingBalance | currency}}" ]))
+col(
+  {
+    border: [1, 1, 1, 1],
+    "border-color": "#d1d5db",
+    "border-radius": 4,
+    padding: [10, 12, 10, 12],
+  },
+  bold(["Opening Balance: ", "{{openingBalance | currency}}"]),
+  s(["Closing Balance: ", "{{closingBalance | currency}}"])
+);
 table(cols, "tx in transactions", [
   ["{{tx.date}}", "18%"],
   ["{{tx.desc}}", "42%"],
-  [when("tx.debit",  s("{{tx.debit | currency}}")),  "13%", "right"],
+  [when("tx.debit", s("{{tx.debit | currency}}")), "13%", "right"],
   [when("tx.credit", s("{{tx.credit | currency}}")), "13%", "right"],
   ["{{tx.balance | currency}}", "14%", "right"],
-])
+]);
 // Totals: omit `cols` here. Statement labels ("Interest Earned", "Closing
 // Balance") are 14-16 chars and need ~25% width. Passing `cols` would
 // give the label only 13% (the N-2 Credit column) and wrap every line.
 // The default layout is 60% spacer / 25% label / 15% value.
 totals([
-  ["Fees Charged",    "{{fees | currency}}"],
+  ["Fees Charged", "{{fees | currency}}"],
   ["Interest Earned", "{{interestEarned | currency}}"],
   ["Closing Balance", "{{closingBalance | currency}}", true],
-])
-ftrPages("{{company.name}}")
+]);
+ftrPages("{{company.name}}");
 ```
 
 A cell's content slot accepts a `when()` wrapper for conditional rendering.
@@ -470,7 +533,8 @@ addr(["{{sender.name}}", "{{sender.address}}", "{{sender.city}}"])
 s("{{date}}")
 addr(["{{recipient.name}}", "{{recipient.address}}", "{{recipient.city}}"])
 gap(12)
-// Body paragraphs — each as a separate span with line-height 1.4:
+// Body paragraphs — each as a separate span with line-height 1.4.
+// Inline style keys are kebab-case, not camelCase: "font-size", "line-height" (not fontSize/lineHeight).
 s({ "font-size": 11, "line-height": 1.4 }, "{{salutation}}")
 s({ "font-size": 11, "line-height": 1.4 }, "{{body}}")
 gap(20)
@@ -485,13 +549,17 @@ Assembly order: name + headline → contact row → summary → experience (loop
 ```js
 const template = doc(
   { size: "A4", title: "{{name}} — CV" },
-  // Name + headline
+  // Name + headline.
+  // Style keys are kebab-case: "font-size", "font-weight" — NOT fontSize/fontWeight.
+  // camelCase keys produce unknown-style-property warnings and the styles do not apply.
   s({ "font-size": 22, "font-weight": "bold" }, "{{name}}"),
   s({ "font-size": 11, color: "#555555" }, "{{headline}}"),
   // Contact row: inline icons/labels + link atoms. One row keeps width predictable.
   text(
-    s("{{location}}"), s("  ·  "),
-    link("mailto:{{email}}", "{{email}}"), s("  ·  "),
+    s("{{location}}"),
+    s("  ·  "),
+    link("mailto:{{email}}", "{{email}}"),
+    s("  ·  "),
     link("{{github}}", "github.com/{{githubHandle}}")
   ),
   gap(8),
@@ -500,8 +568,10 @@ const template = doc(
   gap(10),
   // Experience
   s({ class: "section-heading" }, "Experience"),
-  each("job in experience",
-    r({ grid: ["70%", "30%"] },
+  each(
+    "job in experience",
+    r(
+      { grid: ["70%", "30%"] },
       col("70%", bold("{{job.role}} — {{job.company}}")),
       col({ width: "30%", align: "right" }, s({ color: "#666666" }, "{{job.from}} – {{job.to}}"))
     ),
@@ -510,8 +580,10 @@ const template = doc(
   gap(8),
   // Education
   s({ class: "section-heading" }, "Education"),
-  each("ed in education",
-    r({ grid: ["70%", "30%"] },
+  each(
+    "ed in education",
+    r(
+      { grid: ["70%", "30%"] },
       col("70%", bold("{{ed.degree}} — {{ed.school}}")),
       col({ width: "30%", align: "right" }, s({ color: "#666666" }, "{{ed.year}}"))
     )
@@ -519,10 +591,7 @@ const template = doc(
   gap(8),
   // Skills — inline each() with separator suppression
   s({ class: "section-heading" }, "Skills"),
-  text(each("sk in skills",
-    mono("{{sk}}"),
-    when("!@last", s(" · "))
-  )),
+  text(each("sk in skills", mono("{{sk}}"), when("!@last", s(" · ")))),
   ftrPages()
 );
 ```
@@ -658,11 +727,11 @@ Before outputting, verify:
 The checklist above and `/api/v1/preview/validate` are both **pre-render**
 — they can't tell you that a `{{variable}}` evaluated to `undefined`, that
 a loop produced zero rows, or that a layout budget pushed content off the
-page. After calling `/api/v1/preview`, verify the PDF *content* before
+page. After calling `/api/v1/preview`, verify the PDF _content_ before
 handing it back.
 
 1. **Extract the text.** `pdftotext -layout output.pdf -` (or `mutool draw
-   -F text`, or `qpdf --qdf` + grep for `Tj`). Any tool that reads the
+-F text`, or `qpdf --qdf` + grep for `Tj`). Any tool that reads the
    actual rendered text — not the DSL — will do.
 2. **Look for these red flags in the extracted text:**
    - The literal strings `undefined`, `NaN`, `null`, `[object Object]`
@@ -914,7 +983,7 @@ without ever handling the user's credentials.
    the user's view and adds no information. Make a single call when the
    user says they're ready.
 
-   *Automated harnesses* with no interactive user (CI smoke tests,
+   _Automated harnesses_ with no interactive user (CI smoke tests,
    scripted demos) may fall back to polling `/device/token` on the
    `interval` from step 1. This is allowed but noisy — prefer user-driven
    confirmation when a user is present.
@@ -951,7 +1020,11 @@ If a request returns 401, parse the response body — it contains a
 
 ## Preview API
 
-Render your template by sending it to the preview endpoint:
+Render your template by sending it to the preview endpoint. The `dsl` field
+is **your DSL script serialized as a JSON string** — newlines escaped as
+`\n`, double quotes escaped as `\"`. `data` is the JSON object your
+`{{variables}}` resolve against; omit it and the engine falls back to the
+`sampleData` declared inside the script.
 
 ```
 POST /api/v1/preview
@@ -959,14 +1032,23 @@ Authorization: Bearer <your access_token>
 Content-Type: application/json
 
 {
-  "dsl": "<your DSL script as a string>",
-  "data": { ...your data... }
+  "dsl": "const template = doc({ size: \"A4\" }, page(col(s(\"Hello {{name}}\"))));\nconst sampleData = { name: \"World\" };",
+  "data": { "name": "Ada" }
 }
 ```
 
-Response: PDF binary (default) or JSON metadata (with `Accept: application/json` header).
+Runnable curl with a tiny template inline (multi-line DSL goes in a file —
+see §Sending DSL from a shell):
 
-If `data` is omitted, the engine uses the `sampleData` from your script.
+```bash
+curl -X POST "$API/api/v1/preview" \
+  -H "Authorization: Bearer $MAKESPDF_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"dsl":"const template = doc({ size: \"A4\" }, page(col(s(\"Hello {{name}}\"))));\nconst sampleData = { name: \"World\" };","data":{"name":"Ada"}}' \
+  -o hello.pdf
+```
+
+Response: PDF binary (default) or JSON metadata (with `Accept: application/json` header).
 
 Responses on the free / dev tier include a small `makespdf.com` attribution
 line in the footer area. Paid tiers remove it.
@@ -996,6 +1078,65 @@ jq -n --rawfile dsl template.js --argjson data "$(cat data.json)" \
 `jq -n --rawfile` avoids manually escaping newlines and quotes. If you
 don't have a separate `data.json`, omit the `--argjson data` and drop
 `data: $data` — the engine will fall back to the script's `sampleData`.
+
+---
+
+## Render API
+
+Once a template is stable, save it once and render it many times with
+different data. Two steps:
+
+**1. Save the template** (free, `POST /api/v1/templates`):
+
+```bash
+jq -n --rawfile dsl template.js --arg name "Acme invoice" \
+  '{ dsl: $dsl, name: $name }' |
+  curl -sX POST "$API/api/v1/templates" \
+    -H "Authorization: Bearer $MAKESPDF_API_KEY" \
+    -H "Content-Type: application/json" \
+    --data-binary @-
+# → { "templateId": "…uuid…", "name": "Acme invoice", "createdAt": … }
+```
+
+**2. Render with data** (billed, `POST /api/v1/render`):
+
+```
+POST /api/v1/render
+Authorization: Bearer <your access_token>
+Content-Type: application/json
+
+{
+  "templateId": "11111111-2222-3333-4444-555555555555",
+  "data": { "invoiceNumber": "INV-042", "items": [ … ] }
+}
+```
+
+```bash
+curl -X POST "$API/api/v1/render" \
+  -H "Authorization: Bearer $MAKESPDF_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"templateId":"…uuid…","data":{ … }}' \
+  -o invoice.pdf
+```
+
+Response: PDF binary (default) or JSON metadata (with
+`Accept: application/json`). Headers include `X-Pages`, `X-Credits-Deducted`,
+`X-Credits-Remaining`.
+
+Error responses:
+
+- **400** — malformed JSON, missing `templateId`, non-UUID `templateId`, or
+  non-object `data`.
+- **401** — no valid Bearer token / session cookie.
+- **402** — credits exhausted. Upgrade or top up at `/settings/billing`.
+- **404** — `templateId` is unknown **or** not owned by the caller. The
+  response is identical in both cases by design — the endpoint never
+  confirms existence of other users' templates.
+- **429** — rate limit (200 renders/hour per caller).
+
+**Billing:** 1 credit per 10 pages on success. **Every failure path
+deducts zero credits** — validation errors, 404s, 402s, and render
+exceptions all leave the balance untouched.
 
 ---
 
