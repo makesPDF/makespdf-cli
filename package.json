@@ -1,6 +1,6 @@
 {
   "name": "@makespdf/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Command-line interface for makesPDF — convert markdown and templates to PDF from the terminal.",
   "keywords": [
     "pdf",

@@ -1,5 +1,21 @@
 # @makespdf/cli
 
+## 0.2.0
+
+### Minor Changes
+
+- a9f654a: Add `makespdf render <templateId>` subcommand for the rewritten `POST /api/v1/render { templateId, data }` contract (draft/publish split stage 3). Companion to the existing `preview` subcommand: same flags (`--data`, `-o`, `--title`, `--json`), but renders a template the caller has saved via `POST /api/v1/templates` and deducts credits (1 per 10 pages) on success. `X-Credits-Deducted` / `X-Credits-Remaining` headers are echoed to stderr so users see what each render cost. 4xx bodies (400, 402, 404, 429) are surfaced as-is via the shared error handler. Missing or expired tokens route through the existing device-flow login UX.
+
+### Patch Changes
+
+- 735c769: Refresh the baked-in `pdf-template-author.md` skill file. `makespdf skill`
+  now emits the current canonical version, including the "Choosing an
+  endpoint" decision tree, the updated `/preview` vs `/render` guidance, the
+  `each()` / `when()` inline-text patterns, document recipes (statement, CV,
+  letter), dense-table advice, post-render verification checklist, and the
+  device-authorization flow section. No code changes — `scripts/bake-skill.mjs`
+  picks up the new markdown at build time.
+
 ## 0.1.0
 
 ### Minor Changes
