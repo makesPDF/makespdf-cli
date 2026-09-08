@@ -1,5 +1,7 @@
 # PDF Template Author Skill
 
+<!-- embedded:skip:start -->
+
 > **Note to AI agents:** This document is served over HTTP at
 > `https://makespdf.com/skills/pdf-template-author.md` (or
 > `http://localhost:8788/skills/pdf-template-author.md` in dev). It is **not
@@ -8,13 +10,81 @@
 > that begin with `/api/v1/`, `/device`, or `/skills/` in this document are
 > URL paths relative to the makespdf origin, not filesystem paths.
 
+<!-- embedded:skip:end -->
+
 You are an expert PDF template designer. You create templates using a compact builder DSL that renders into professional PDF documents via the makespdf.com engine.
+
+<!-- embedded:skip:start -->
+
+## Companion skills
+
+Read these alongside this file when the topic comes up — they are not
+duplicated here in full. Each is fetchable from the makespdf origin at
+the URL shown.
+
+- **Authentication** —
+  [`/skills/pdf-auth.md`](https://makespdf.com/skills/pdf-auth.md).
+  How to obtain a Bearer token via the OAuth 2 device flow (RFC 8628).
+  Read this if you don't already have a token. Covers the four-step
+  flow, the do-not-do-this list (no asking for passwords, no clicking
+  through `/device` yourself in browser MCP), and the 401 response
+  shape that points back here.
+
+- **Paying without an account (x402)** — wallet-owning agents can skip
+  signup entirely and pay per call in USDC on Base mainnet. POST your
+  request with no auth; the server replies HTTP 402 advertising the
+  price (`$0.01` for `/api/v1/markdown`, `$0.02` for `/api/v1/render`
+  with an inline `{ dsl, data }` body — `templateId` is account-only).
+  Use `/api/v1/markdown`, not `/api/v1/md`, as the wallet entry point:
+  the two run the same pipeline at the same price, but `/api/v1/md`
+  also honours a free anonymous promo, so it may answer 200 or 401
+  instead of the 402 you need. Sign an
+  EIP-3009 `transferWithAuthorization` for the advertised amount,
+  base64-encode the JSON `PaymentPayload`, and resend the same request
+  with header `PAYMENT-SIGNATURE: <base64>`. Idempotent on retry within
+  5 minutes. Full spec, V2 wire shape, and a real example body live in
+  [`/llms.txt`](https://makespdf.com/llms.txt) under §Pay-per-call.
+
+- **API endpoints** —
+  [`/skills/pdf-api.md`](https://makespdf.com/skills/pdf-api.md).
+  How to call `POST /api/v1/preview`, `POST /api/v1/render`, and
+  `POST /api/v1/preview/validate` — request/response shapes, error
+  codes, billing rules, and the `jq`-based shell pattern for sending
+  multi-line DSL. Read after authoring a template.
+
+- **Document recipes** —
+  [`/skills/pdf-recipes.md`](https://makespdf.com/skills/pdf-recipes.md).
+  Per-doc-type assembly skeletons (Invoice, Receipt, Quote, Statement,
+  Letter, CV). Self-contained — each fits on a screen. Fetch only the
+  one matching the user's request.
+
+- **Custom fonts** —
+  [`/skills/pdf-fonts.md`](https://makespdf.com/skills/pdf-fonts.md).
+  Uploading TTF/OTF fonts to your account so any saved template can
+  reference them by `font-family` name. Covers variable-font handling
+  (rejected — use static instances), Google-Fonts → variant-slot mapping,
+  and the `POST /api/v1/fonts` upload API. Read this before generating a
+  template that uses anything other than `Inter`, `NotoSans`, `Cousine`,
+  or `NotoSymbols2` (the embedded families).
+
+- **Server-side integration** —
+  [`/skills/pdf-integration.md`](https://makespdf.com/skills/pdf-integration.md).
+  How to wire makesPDF into an application codebase once a template
+  exists: API-key setup, where to store the `templateId`, error
+  handling, retry policy, per-language snippets (Node, Python, Go,
+  Ruby, PHP), and patterns for delivering the PDF (browser stream,
+  S3, email, background jobs). Read this if the user is asking
+  "integrate this into my app" rather than authoring a new template.
+
+<!-- embedded:skip:end -->
 
 ## How This Works
 
 1. You write a **builder DSL script** (JavaScript) that defines a `template` and `sampleData`
-2. The engine converts it to a DocumentDefinition, resolves `{{variables}}`, lays out elements, and returns a **PDF/A-2A + PDF/UA-1 dual-compliant** PDF (~100ms, no AI)
+2. The engine converts it to a DocumentDefinition, resolves `{{variables}}`, lays out elements, and returns a **PDF/A-2A + PDF/UA-1 dual-compliant** PDF (about a second, no AI)
 3. All output is archival-grade and accessible: embedded fonts, tagged structure tree, XMP metadata, sRGB ICC color profile
+
+<!-- embedded:skip:start -->
 
 ## Choosing an endpoint
 
@@ -26,17 +96,14 @@ fighting the tool.
 What do you have?
 │
 ├── Markdown content, want a PDF with default styling?
-│     → POST /api/v1/md               (~100ms, no AI)
-│
-├── Markdown with `---` slide breaks for LinkedIn?
-│     → POST /api/v1/carousel         (~100ms, no AI)
+│     → POST /api/v1/md               (about a second, no AI)
 │
 ├── Authoring / iterating on a template with inline DSL (free)?
-│     → POST /api/v1/preview { dsl, data }   (~100ms, deterministic)
+│     → POST /api/v1/preview { dsl, data }   (about a second, deterministic)
 │       Full control. Write the DSL yourself (this skill teaches you how).
 │
 └── Have a saved templateId and want to render it with data (billed)?
-      → POST /api/v1/render { templateId, data }   (~100ms, deterministic)
+      → POST /api/v1/render { templateId, data }   (about a second, deterministic)
         Production path once the DSL is stable. Same pipeline as /preview,
         different input source. Requires an API key or session cookie and
         ownership of the template.
@@ -62,6 +129,25 @@ you want real data in the output, save the template
 (AI auto-generates a template) has been removed as part of the draft/
 publish split. `/render` now exclusively accepts `{ templateId, data }`
 against a template you saved via `POST /api/v1/templates`.
+
+### Start from a library template
+
+Before authoring DSL from scratch, check the built-in library — curated
+starting points for invoices, receipts, quotes, resumes, and more.
+Library rows live in the same `templates` table as your saves; they're
+just rows where `ownerUserId IS NULL`, world-readable to any authed
+caller.
+
+```
+GET  /api/v1/templates?owner=library&category=invoice&q=classic  →  discover
+GET  /api/v1/templates/invoice-classic                            →  fetch { dsl, sampleData, ... }
+POST /api/v1/render { templateId: "invoice-classic", data }       →  billed render — no fork required
+```
+
+You can render a library `templateId` directly. If you want to customise
+the DSL (rename columns, swap branding), pull it, edit locally, then
+`POST /api/v1/templates` to create your own user-owned copy and render
+that.
 
 ## When to use this skill (vs. Markdown)
 
@@ -99,8 +185,8 @@ occasional emphasis is a perfectly reasonable DSL document — use
 
 ### `/api/v1/preview` vs `/api/v1/render`
 
-Both endpoints run the same deterministic DSL → PDF pipeline (~100ms, no
-AI). They differ only in what the caller supplies and how billing works:
+Both endpoints run the same deterministic DSL → PDF pipeline (about a second,
+no AI). They differ only in what the caller supplies and how billing works:
 
 - **`POST /api/v1/preview { dsl, data }`** — pass the DSL source inline.
   The authoring / draft endpoint. Free (no credits deducted). Use while
@@ -111,9 +197,59 @@ AI). They differ only in what the caller supplies and how billing works:
   or session auth; returns 404 for unknown or non-owned `templateId`.
 
 Typical flow for an agent:
+
 1. Draft the DSL and iterate with `/preview` until it looks right.
 2. `POST /api/v1/templates { dsl, name }` → `{ templateId }` (free).
 3. Render N times with `POST /api/v1/render { templateId, data }` (billed).
+
+### The same loop over MCP
+
+If your environment supports MCP (Model Context Protocol), the whole
+author → render loop is also available as schema-validated tools —
+no hand-built HTTP requests. The remote server lives at
+`https://makespdf.com/api/v1/mcp` (HTTP transport, JSON-RPC over POST)
+and authenticates with the same Bearer API key as the REST API:
+
+```sh
+claude mcp add --transport http makespdf \
+  https://makespdf.com/api/v1/mcp \
+  --header "Authorization: Bearer $MAKESPDF_API_KEY"
+```
+
+Ten tools, mirroring the REST endpoints used throughout this skill:
+
+| Tool                 | Mirrors                         | Billing                          |
+| -------------------- | ------------------------------- | -------------------------------- |
+| `validate_dsl`       | `POST /api/v1/preview/validate` | free                             |
+| `validate_markdown`  | `POST /api/v1/md/validate`      | free                             |
+| `render_dsl_preview` | `POST /api/v1/preview`          | free, watermarked draft          |
+| `save_template`      | `POST /api/v1/templates`        | free                             |
+| `list_templates`     | `GET /api/v1/templates`         | free                             |
+| `get_template`       | `GET /api/v1/templates/:id`     | free                             |
+| `update_template`    | `PUT /api/v1/templates/:id`     | free                             |
+| `delete_template`    | `DELETE /api/v1/templates/:id`  | free                             |
+| `render_template`    | `POST /api/v1/render`           | **billed** — 1 credit / 10 pages |
+| `render_markdown`    | `POST /api/v1/md`               | **billed** — 1 credit / 10 pages |
+
+Library browsing uses the same template tools: `list_templates` with
+`owner: "library"` to discover curated templates, `get_template` to pull
+DSL + sampleData for a fork.
+
+`render_markdown` is the markdown counterpart to `render_template`, billed
+at the same rate. There is no free markdown preview: markdown needs no
+layout iteration, so run `validate_markdown` (free) as the pre-flight
+instead.
+
+`render_template` produces a real, billable PDF; on the free plan the
+output is watermarked, paid plans render clean. Confirm the layout with
+`render_dsl_preview` (free) before calling it. This document is also
+exposed as an MCP resource (`pdf-template-author`), so you can re-fetch
+it through the MCP connection instead of HTTP.
+
+Setup snippets for Claude Desktop, Cursor, and raw HTTP live at
+[`/docs/mcp`](https://makespdf.com/docs/mcp).
+
+<!-- embedded:skip:end -->
 
 ## Output Format
 
@@ -123,6 +259,8 @@ Output ONLY valid JavaScript. No markdown fences, no explanations. The script mu
 - `const sampleData = {...}` — example data matching the template's `{{variables}}`
 
 ---
+
+<!-- embedded:skip:start -->
 
 ## How to use this skill
 
@@ -138,6 +276,8 @@ On first read, skim the whole document. For subsequent tasks, focus on the secti
 
 The §Design Principles and §Rules sections are short and load-bearing — always honor them, regardless of task.
 
+<!-- embedded:skip:end -->
+
 ---
 
 ## Builder DSL Reference
@@ -146,14 +286,74 @@ The §Design Principles and §Rules sections are short and load-bearing — alwa
 
 `doc(opts, ...sections)` — Creates the document.
 
-Options: `{ size, title, author, styles, padding }`
+Options: `{ size, title, author, subject, keywords, styles, padding }`
 
 - `size`: `"A4"`, `"A3"`, `"A5"`, `"Letter"`, `"Legal"` (default A4)
 - `title`: Document title, can use `{{variables}}`
+- `author`: Document author -> `/Author` + `dc:creator`
+- `subject`: One-line description of the document -> `/Subject` + `dc:description`
+- `keywords`: Topic keywords, an array or a comma-separated string -> `/Keywords`
 - `styles`: Custom style classes to merge with the standard kit
 - `padding`: Page padding in points (default 30)
 
-Auto-wraps content in a page, separates header/footer to top-level. The **standard style kit** is included automatically: `.label`, `.body`, `.small`, `.heading`, `.section-heading`, `.table-header`, `.table-cell`, `.table-cell-alt`, `.total-row`, `.footer-bar`.
+Set `author`, `subject`, and `keywords` on every template you author. Accessibility
+checkers flag a PDF that carries only a title (WCAG 2.4.2), and they are the metadata
+a reader's assistive technology and a document search index both read. All three
+accept `{{variables}}`, so they can come from the render data:
+
+```js
+doc({
+  size: "A4",
+  title: "Invoice {{invoice.number}}",
+  author: "{{company.name}}",
+  subject: "Invoice {{invoice.number}} for {{customer.name}}",
+  keywords: ["invoice", "{{company.name}}"],
+}, ...)
+```
+
+Auto-wraps content in a page, separates header/footer to top-level. The **standard style kit** is included automatically: <!-- catalog:standard-style-kit:start -->
+`.label`, `.body`, `.small`, `.heading`, `.section-heading`, `.table-header`, `.table-cell`, `.table-cell-alt`, `.total-row`, `.footer-bar`
+
+<!-- catalog:standard-style-kit:end -->.
+
+#### Document-wide style changes — set the cascade root
+
+When the user asks for a change that should affect **every** element ("make
+the document font NotoSans size 10", "use a darker default text color"),
+edit the `"."` selector in `styles` — that's the document-wide cascade root
+that every element inherits from. Don't enumerate classes (`.body`, `.label`,
+`.heading`, etc.) one at a time — unclassed inline spans (plain `s("text")`,
+`bold(...)`, `italic(...)`) don't belong to any of those classes, so they'd
+keep the engine default and only half the rendered text would actually
+change.
+
+```js
+// ✅ Document-wide change — applies to everything, including unclassed spans
+doc(
+  {
+    size: "A4",
+    styles: {
+      ".": { "font-family": "NotoSans", "font-size": 10 },
+    },
+  } /* ... */
+);
+
+// ❌ Class-by-class — misses inline `s("...")` and `bold(...)` spans
+doc(
+  {
+    styles: {
+      ".body": { "font-family": "NotoSans", "font-size": 10 },
+      ".label": { "font-family": "NotoSans" },
+      ".table-cell": { "font-family": "NotoSans", "font-size": 10 },
+      // ...still misses every plain s("...") span in the tree
+    },
+  } /* ... */
+);
+```
+
+Sized classes like `.heading` (22pt) and `.small` (8pt) keep their own
+sizes via cascade override — they'll pick up the new `font-family` from `.`
+but their explicit `font-size` still wins, which is what you want.
 
 ### Primitives
 
@@ -237,16 +437,212 @@ block inside a span and produces surprising output.
 
 ### Organisms
 
-| Function                       | Purpose                                                                                                                                                              |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `minHdr(title, company)`       | Minimal header (title left, company right). `title`/`company` accept strings or inline Element(s)                                                                    |
-| `lvGrid(pairs[], labelWidth?)` | Label-value grid from `[label, value][]` pairs — label/value accept strings or inline Element(s)                                                                     |
-| `addrs(from, to)`              | Two-column addresses. Each: `{ label, lines[] }`. Labels and each line accept strings or inline Element(s)                                                           |
-| `table(cols, loopExpr, cells)` | Data table with header + loop. `cols`/`cells`: `[content, width, align?][]` where `content` is a string, an inline Element, or an array of either. Sets grid on rows |
-| `totals(rows, cols?)`          | Totals section. `rows`: `[label, value, bold?][]`. Labels/values accept strings or Element(s). Pass cols for grid+colspan                                            |
-| `ftrPages(company?)`           | Footer with page numbers (and optional company name — string or Element(s))                                                                                          |
-| `terms(heading, content)`      | Terms/notes block. `heading`/`content` accept strings or inline Element(s) — ideal for prose paragraphs with emphasis                                                |
-| `sigBlock()`                   | Signature lines (two side-by-side)                                                                                                                                   |
+| Function                       | Purpose                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `minHdr(title, company)`       | Minimal header (title left, company right). `title`/`company` accept strings or inline Element(s)                                                                                                                                                                                                                        |
+| `lvGrid(pairs[], labelWidth?)` | Label-value grid from `[label, value][]` pairs — label/value accept strings or inline Element(s)                                                                                                                                                                                                                         |
+| `addrs(from, to)`              | Two-column addresses. Each: `{ label, lines[] }`. Labels and each line accept strings or inline Element(s)                                                                                                                                                                                                               |
+| `table(cols, loopExpr, cells)` | Data table with header + loop. `cols`/`cells`: `[content, width?, align?][]` — width and align are optional. Omit width and `table()` picks `auto` for every column, then promotes the widest column to `1fr` so it absorbs surplus (overridable by passing any explicit width). Cell widths inherit from cols by index. |
+| `totals(rows, cols?)`          | Totals section. `rows`: `[label, value, bold?][]`. Labels/values accept strings or Element(s). Pass cols for grid+colspan                                                                                                                                                                                                |
+| `ftrPages(company?)`           | Footer with page numbers (and optional company name — string or Element(s))                                                                                                                                                                                                                                              |
+| `terms(heading, content)`      | Terms/notes block. `heading`/`content` accept strings or inline Element(s) — ideal for prose paragraphs with emphasis                                                                                                                                                                                                    |
+| `sigBlock()`                   | Signature lines (two side-by-side)                                                                                                                                                                                                                                                                                       |
+
+### Fillable form fields (AcroForm)
+
+Use these when the PDF needs to be filled in by a human or another agent
+after rendering — consent forms, intake forms, surveys, KYC, gov-style
+applications. The widgets are real PDF/A-2A + PDF/UA-1 form fields with
+pre-baked appearance streams; they remain interactive in Adobe Reader,
+Apple Preview, and any modern browser viewer, and they participate in the
+tagged structure tree so screen readers can announce them.
+
+Pair every form template with `tagged: true` on the `doc(...)` so the
+widgets land inside the structure tree (otherwise they're still fillable
+but not accessible). Field `name` must be unique across the document.
+Working sample lives in the makesPDF repo at
+`assets/samples/forms/consent-form-dsl.js` (template) and
+`assets/samples/forms/consent-form-render.pdf` (the rendered output, also
+used as a fixture in the per-release veraPDF gate).
+
+| Function         | Purpose                                                                                                                                                                                                           |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `input(opts)`    | Fillable text field (`/Tx`). `opts`: `{ name, width, height, value?, tooltip?, maxLength?, multiline? }`. Use `multiline: true` for paragraph-sized inputs.                                                       |
+| `checkbox(opts)` | Fillable checkbox (`/Btn`). `opts`: `{ name, size, checked?, tooltip?, label? }`. When `label` is provided, returns a row with the box + label text aligned to the right of it — the typical consent-form layout. |
+| `select(opts)`   | Fillable dropdown (`/Ch` combo). `opts`: `{ name, width, height, options: [{ label, value }, …], value?, editable?, tooltip? }`. `value` is the initially-selected option's `value`.                              |
+
+Always supply `tooltip` — it's the field's accessible name (`/TU`),
+required for PDF/UA-1 conformance and what assistive tech announces.
+
+```js
+// Minimal fillable consent block
+input({ name: "fullName", width: 400, height: 18, tooltip: "Full legal name", maxLength: 120 }),
+gap(6),
+select({
+  name: "contactMethod", width: 200, height: 20,
+  options: [
+    { label: "Email",  value: "email" },
+    { label: "Phone",  value: "phone" },
+    { label: "Postal", value: "post"  },
+  ],
+  value: "email", tooltip: "How we should reach you",
+}),
+gap(6),
+checkbox({
+  name: "consentProcessing", size: 12,
+  tooltip: "Consent to data processing (required)",
+  label: "I consent to the processing of my personal data.",
+}),
+```
+
+`value` / `checked` set the **initial** state baked into the PDF; the
+viewer is free to overwrite it. To pre-fill from `data`, just thread
+`{{variables}}` through `value` like any other string.
+
+Out of scope: `/Sig` digital-signature fields, Acrobat-style JavaScript
+calculations, and radio-button groups (use a `select` instead, or model
+mutually-exclusive choices as a single checkbox per option).
+
+---
+
+## Raw-drawing escape hatch (`vector()`)
+
+**Use this sparingly.** For prose, tables, lists, or stacked content, reach for the semantic tags (`text`, `bullet`, `dataTable`, `table`, …) — they produce properly tagged PDF/UA output. `vector()` is for bespoke shapes the semantic tags can't express: custom badges, signature boxes, decorative separators, stamped marks, small diagrams.
+
+`vector(opts, ...shapes)` renders declarative SVG-style shapes as native PDF vector graphics (no rasterisation). It returns an `img`-typed element with a baked-in data URI; the layout renderer routes it through the same SVG → PDF pipeline used by markdown SVG images and Mermaid diagrams.
+
+```javascript
+vector(
+  { width: 120, height: 40, alt: "Approved stamp" },
+  rect({
+    x: 0,
+    y: 0,
+    w: 120,
+    h: 40,
+    rx: 4,
+    fill: "#fee2e2",
+    stroke: "#b91c1c",
+    "stroke-width": 1.5,
+  }),
+  svgText(
+    {
+      x: 60,
+      y: 26,
+      "font-size": 14,
+      "font-weight": "bold",
+      fill: "#b91c1c",
+      "text-anchor": "middle",
+    },
+    "APPROVED"
+  )
+);
+```
+
+### Shape commands
+
+| Function                   | SVG equivalent                         | Common attrs                                            |
+| -------------------------- | -------------------------------------- | ------------------------------------------------------- |
+| `rect({x,y,w,h,...})`      | `<rect>` (`w`/`h` map to width/height) | `rx`, `ry`, `fill`, `stroke`, `stroke-width`, `opacity` |
+| `circle({cx,cy,r,...})`    | `<circle>`                             | `fill`, `stroke`, `stroke-width`, `opacity`             |
+| `ellipse({cx,cy,rx,ry})`   | `<ellipse>`                            | same styling attrs                                      |
+| `line({x1,y1,x2,y2,...})`  | `<line>`                               | `stroke`, `stroke-width`, `stroke-dasharray`            |
+| `polyline({points,...})`   | `<polyline>`                           | `points: "0,0 10,10 20,0"`                              |
+| `polygon({points,...})`    | `<polygon>`                            | `points: "0,0 10,10 20,0"`                              |
+| `path({d,...})`            | `<path>`                               | full SVG path grammar: `M L C S Q T A Z H V`            |
+| `svgText({x,y,...}, body)` | `<text>`                               | `font-size`, `font-weight`, `fill`, `text-anchor`       |
+
+All coordinates are points in the drawing area's own coordinate system (top-left origin, viewBox defaults to `0 0 width height`). Pass an explicit `viewBox` option to override.
+
+### Gradients
+
+Linear and radial gradients are supported via `defs(...)` + `linearGradient`/`radialGradient` + `stop`, referenced from `fill` or `stroke` using `url(#id)`:
+
+```javascript
+vector(
+  { width: 200, height: 60, alt: "Gradient banner" },
+  defs(
+    linearGradient(
+      { id: "bg", x1: 0, y1: 0, x2: 1, y2: 0 },
+      stop({ offset: 0, "stop-color": "#0ea5e9" }),
+      stop({ offset: 1, "stop-color": "#6366f1" })
+    )
+  ),
+  rect({ x: 0, y: 0, w: 200, h: 60, fill: "url(#bg)" })
+);
+```
+
+- `gradientUnits` defaults to `objectBoundingBox` (coords are 0–1 fractions of the shape's bbox); pass `gradientUnits: "userSpaceOnUse"` for absolute coords.
+- `gradientTransform` is supported and composes with the shape's CTM.
+- `spreadMethod: "pad"` only — `reflect` / `repeat` render as `pad` with a warning.
+- Per-stop `stop-opacity` below 1 is not honoured yet (stops render opaque).
+
+### What it can't do
+
+- `spreadMethod: reflect` / `repeat` (tiled pattern support TBD).
+- No filters, masks, or `<foreignObject>` body content (fallback text only).
+- No interactive elements or scripting.
+
+### Acceptance checklist
+
+- Always pass `alt` on `vector()` — tagged PDF emits `/Figure` with that `/Alt`. Omitting it produces an empty string alt, which is valid only for purely decorative marks.
+- Stick to explicit numeric coordinates; `{{variable}}` substitution does not run inside `vector()` arguments (they execute during DSL evaluation, before template substitution).
+
+---
+
+## Barcodes (`barcode()`)
+
+`barcode(value, options)` renders a Code 39 or Code 128 barcode as native PDF vector graphics — no font, no rasterisation, scannable at any zoom. Returns an `img`-typed element backed by a `barcode:` URL that the renderer expands at output time, so the value can be a `{{template}}` placeholder that resolves per render.
+
+```js
+barcode("{{trackingNumber}}", {
+  format: "code128", // "code128" (default) or "code39"
+  width: 240, // total image width in pt (required-ish, default 200)
+  height: 56, // bar height in pt (default 50)
+  "show-text": true, // human-readable line below bars (default false)
+  "quiet-zone": 10, // module-widths of empty space on each side (default 10)
+  "text-font-size": 8, // pt (default 8)
+  alt: "Tracking {{trackingNumber}}",
+});
+```
+
+**Pick a format:**
+
+- `code128` — denser, supports full ASCII 32–127. Default. Use for shipping labels, asset tracking, generic identifiers.
+- `code39` — older, ubiquitous in legacy systems. Accepts uppercase A–Z, digits, space, and `- . $ / + %` only. No checksum.
+
+**Sizing for scannability:** module width is derived as `(width − 2·quietZone·moduleWidth) / totalModules`. Aim for a module width ≥ 0.5pt (≈ 0.18mm) so consumer scanners and phone cameras can read the bars. Wider is more reliable; narrower saves space at the cost of scan robustness. The default `quiet-zone: 10` modules of empty space on each side is required by the Code 128 spec — don't lower it without a reason.
+
+**Dynamic values:** the value field accepts `{{template}}` placeholders and resolves at render time. The literal characters `&` and `=` will corrupt the barcode URL (used internally), so values must not contain those — realistic barcode payloads (tracking numbers, SKUs, order IDs) never do.
+
+**Accessibility:** always pass `alt`. The renderer emits a `/Figure` with that `/Alt` for tagged PDF / PDF-UA compliance. If you omit it, the encoded value is used as fallback alt text — fine for human-readable identifiers, less helpful for opaque codes.
+
+---
+
+## QR Codes (`qr()`)
+
+`qr(value, options)` renders a QR code as native PDF vector graphics — no font, no rasterisation, scannable at any zoom. Returns an `img`-typed element backed by a `qr:` URL that the renderer expands at output time, so the value can be a `{{template}}` placeholder that resolves per render. The encoder auto-selects the smallest QR version (21×21 up to 177×177 modules) and the lowest-penalty mask, and picks the most efficient encoding mode (numeric, alphanumeric, or byte/UTF-8) for the payload.
+
+```js
+qr("https://pay.example.com/inv/{{invoice.number}}", {
+  ecc: "M", // "L" | "M" (default) | "Q" | "H"
+  size: 120, // total width/height in pt (square; default 120)
+  "quiet-zone": 4, // module-widths of empty space on each side (default 4, spec minimum)
+  alt: "Scan to pay invoice {{invoice.number}}",
+});
+```
+
+**Pick an error-correction level:** higher levels recover more damage at the cost of a larger symbol for the same payload.
+
+- `L` ≈ 7% recovery — densest, smallest. Use for clean-print URLs on screen or pristine paper.
+- `M` ≈ 15% recovery — default, the everyday choice.
+- `Q` ≈ 25% recovery — receipt paper, dim lighting, expected smudging.
+- `H` ≈ 30% recovery — thermal labels, scratched surfaces, anywhere reliability matters more than density.
+
+**Sizing for scannability:** module width is derived as `size / (modules + 2·quietZone)`. Aim for a module width ≥ 1pt (≈ 0.35mm) so phone cameras can resolve modules at a reasonable distance. A 96–120pt box covers most URL-length payloads at ecc M; bump to 150pt+ for long payloads or H-level ecc. The default `quiet-zone: 4` modules is the spec minimum — don't lower it.
+
+**Dynamic values:** the value accepts `{{template}}` placeholders and resolves at render time. The literal characters `&` and `=` will corrupt the QR URL (used internally), so percent-encode them before substitution if your payload is a URL with a query string (most "scan to pay" / tracking deep links don't have query strings, so this rarely bites).
+
+**Accessibility:** always pass `alt`. The renderer emits a `/Figure` with that `/Alt` for tagged PDF / PDF-UA compliance. If you omit it, the encoded value is used as fallback alt text — fine for short URLs, less helpful for opaque payloads.
 
 ---
 
@@ -260,18 +656,18 @@ When a `table()` and `totals()` share the same `cols`, totals rows automatically
 
 ```javascript
 const cols = [
-  ["Description", "45%"],
-  ["Qty", "15%", "center"],
-  ["Price", "20%", "right"],
-  ["Amount", "20%", "right"],
+  ["Description", "1fr"],
+  ["Qty", "auto", "center"],
+  ["Price", "auto", "right"],
+  ["Amount", "auto", "right"],
 ];
-// → grid = ["45%", "15%", "20%", "20%"]
-// Each header and data row gets attr.grid = ["45%", "15%", "20%", "20%"]
+// → grid = ["1fr", "auto", "auto", "auto"]
+// Each header and data row gets attr.grid = ["1fr", "auto", "auto", "auto"]
 ```
 
 ### How `totals()` aligns with the grid
 
-`totals(rows, cols?)` passes the grid to each `totRow()`. With a grid, `totRow()` uses `colspan` instead of fixed widths:
+`totals(rows, cols?)` passes the grid to each `totRow()`. With a grid, the totals row has just two cells: a label that spans every column except the last, and the value cell in the last column.
 
 ```javascript
 totals(
@@ -282,13 +678,18 @@ totals(
   cols
 );
 // Each totals row becomes:
-//   attr.grid = ["45%", "15%", "20%", "20%"]     ← same grid as the table
-//   child 0: spacer  → colspan: 2  (spans "45%" + "15%" = 60%)
-//   child 1: label   → colspan: 1  (spans "20%")
-//   child 2: value   → colspan: 1  (spans "20%", right-aligned)
+//   attr.grid    = ["1fr", "auto", "auto", "auto"] ← same grid as the table
+//   attr.grid-id = "gid-…"                          ← matches the table's id
+//   child 0: label → colspan: 3  (right-aligned, spans Description + Qty + Price)
+//   child 1: value → colspan: 1  (right-aligned, Amount column — auto-sized via grid-id)
 ```
 
-This ensures the "Amount" column in the table and the value column in totals are pixel-aligned, regardless of column widths.
+Two things make the value column align with the table's Amount column:
+
+1. **Same `attr.grid`.** Both rows declare the same column tokens, so a fixed/percent token in the last slot resolves identically.
+2. **Same `attr.grid-id`.** A deterministic id derived from the `cols` array. The engine groups every row sharing it and resolves their `auto`/`fr` columns _together_, so the value column lines up even when it's `"auto"` (e.g. a Balance column sized to its data).
+
+`table()` and `totals(rows, cols)` set `grid-id` for you. You only need to think about it when hand-writing rows that should join an existing table's group — set `attr["grid-id"]` to the same string the builders generated, or stamp your own consistent id across all rows of the table.
 
 ### Manual grid+colspan
 
@@ -310,6 +711,14 @@ r(
 - `colspan` is set on `col()` children (default 1)
 - Children don't need explicit `width` — the grid determines their width
 - The sum of all colspan values should equal the number of grid entries
+
+**Grid token forms:** numbers / `"<n>pt"` (fixed points), `"<n>%"` (percent of row), `"auto"` (sizes to the widest content in that column), `"auto-stretch"` (like `auto`, but the widest such column in the row claims any surplus space — what `table()` writes for omitted widths), and `"<n>fr"` (shares the remaining surplus proportionally — `"1fr"` and `"2fr"` split 1:2). Mix freely: `["120pt", "auto", "1fr"]` pins the first column, sizes the second to its content, and lets the third take whatever's left.
+
+> **Rule for line-item tables: omit widths and let `table()` pick `auto` for every column, with the widest column auto-promoted to absorb surplus.** Equivalently, write `["1fr", "auto", "auto", "auto"]` by hand. Never use `"%"` widths on Qty / Unit Price / Rate / Amount / SKU / Date.
+>
+> The canonical 4-column invoice — Description + three numeric columns — can be written as `[["Description"], ["Qty", undefined, "right"], ["Unit Price", undefined, "right"], ["Amount", undefined, "right"]]`. Same pattern for receipts, quotes, statements, time-tracking tables, anything with a description + numbers shape.
+
+Why this matters: sizing a numeric column with a fixed percent (e.g. `"10%"` for Unit Price, `"15%"` for Total) is the most common authoring trap. If any data row's value is wider than the slot, the cell wraps onto two lines with the visible text sitting at the bottom of the row, breaking the column's vertical alignment with its neighbours. The grid coordinator resolves `auto`/`fr`/`auto-stretch` widths consistently across the header, every data row, and the totals strip, so there is no upside to defensive percentages and a real downside when data outgrows them. Percents belong in two-up summary blocks (`["55%", "45%"]`) and other true layout splits — not in line-item tables.
 
 ---
 
@@ -387,26 +796,48 @@ engine handles it.
 
 Available in inline style objects (e.g. `col({ "font-size": 12, width: "50%" }, ...)` — kebab-case, not `fontSize`):
 
-| Property           | Values                                                                     |
-| ------------------ | -------------------------------------------------------------------------- |
-| `font-family`      | `"Inter"` (default), `"NotoSans"`                                          |
-| `font-size`        | number (pts). Body: 9-10, headings: 14-22, range: 7-24                     |
-| `font-weight`      | `"normal"`, `"bold"`                                                       |
-| `font-style`       | `"normal"`, `"italic"`                                                     |
-| `color`            | hex string, e.g. `"#333333"`                                               |
-| `background-color` | hex string                                                                 |
-| `width`            | number (pts), `"50%"`, or `"stretch"`                                      |
-| `height`           | number (pts), `"stretch"`, or omit for auto                                |
-| `margin`           | `[t, r, b, l]` or single number                                            |
-| `padding`          | `[t, r, b, l]` or single number                                            |
-| `border`           | `[t, r, b, l]` — widths in pts, 0 = no border                              |
-| `border-color`     | hex string                                                                 |
-| `border-radius`    | number                                                                     |
-| `align`            | `"left"`, `"center"`, `"right"` — set on **column**, inherited by children |
-| `valign`           | `"top"`, `"center"`, `"bottom"`                                            |
-| `line-height`      | multiplier, e.g. `1.2`                                                     |
-| `text-decoration`  | `"underline"`                                                              |
-| `opacity`          | 0-1                                                                        |
+<!-- catalog:style-properties-table:start -->
+
+| Property             | Values                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------- |
+| `font-family`        | `"Inter"`, `"NotoSans"`, `"Cousine"` — default: "Inter"; inherits                                 |
+| `font-size`          | number (pt), 4-72 — typical: 8-20. Body: 10. Headings: 14-20. Captions: 8.; default: 10; inherits |
+| `font-weight`        | `"normal"`, `"semibold"`, `"bold"` — default: "normal"; inherits                                  |
+| `font-style`         | `"normal"`, `"italic"` — default: "normal"; inherits                                              |
+| `color`              | hex string — inherits                                                                             |
+| `line-height`        | number, 0.5-3 — typical: 1.0-1.6                                                                  |
+| `letter-spacing`     | number (pt) — typical: 0-3. Small-caps labels: 1-2.; default: 0; inherits                         |
+| `text-transform`     | `"none"`, `"uppercase"`, `"lowercase"`, `"capitalize"` — default: "none"; inherits                |
+| `text-decoration`    | `"underline"`                                                                                     |
+| `width`              | number (pts), `"50%"`, or `"stretch"`                                                             |
+| `max-width`          | number (pts), `"50%"`, or `"stretch"`                                                             |
+| `height`             | number (pts), `"50%"`, or `"stretch"`                                                             |
+| `margin`             | `[t, r, b, l]` or single number — typical: 0-30. Section spacing: 5-10.                           |
+| `padding`            | `[t, r, b, l]` or single number — typical: 0-20                                                   |
+| `align`              | `"left"`, `"center"`, `"right"` — inherits                                                        |
+| `valign`             | `"top"`, `"center"`, `"bottom"`                                                                   |
+| `background-color`   | hex string                                                                                        |
+| `border`             | `[t, r, b, l]` or single number                                                                   |
+| `border-top`         | number (pt)                                                                                       |
+| `border-right`       | number (pt)                                                                                       |
+| `border-bottom`      | number (pt)                                                                                       |
+| `border-left`        | number (pt)                                                                                       |
+| `border-color`       | hex string                                                                                        |
+| `border-radius`      | number (pt)                                                                                       |
+| `column-span`        | `"all"`                                                                                           |
+| `orphans`            | number — typical: 1-3; default: 1                                                                 |
+| `widows`             | number — typical: 1-3; default: 1                                                                 |
+| `min-presence-ahead` | number (pt) — typical: 30-80. Headings: 40-60.; default: 0                                        |
+| `opacity`            | number, 0-1                                                                                       |
+| `position`           | `"relative"`, `"absolute"` — default: "relative"                                                  |
+| `top`                | number (pt)                                                                                       |
+| `left`               | number (pt)                                                                                       |
+| `right`              | number (pt)                                                                                       |
+| `bottom`             | number (pt)                                                                                       |
+| `z-index`            | number — default: 0                                                                               |
+| `transform`          | { rotate?: number (degrees), translate?: [x, y] } — applied around the element centre             |
+
+<!-- catalog:style-properties-table:end -->
 
 Units are points (1pt = 1/72 inch). A4 = 595 x 842pt.
 
@@ -416,206 +847,42 @@ Custom styles can extend the standard kit via `doc({ styles: { ".custom": { "fon
 
 ## Document Recipes
 
-Assembly order (top to bottom) for common document types:
+> **Per-doc-type assembly skeletons live in
+> [`/skills/pdf-recipes.md`](https://makespdf.com/skills/pdf-recipes.md).**
+> Fetch that file when you need to author a specific document type —
+> Invoice, Receipt, Quote, Statement, Letter, or CV. The recipes are
+> self-contained and use only DSL covered in this main skill. Below: a
+> short stub kept inline for the most common case (Invoice) so a quick
+> `head -N` of this file shows _something_ recognisable; everything else
+> is in the companion.
 
-### Invoice
+### Invoice (quick reference)
+
+The Invoice recipe is the canonical example. Full version with field
+names, totals shape, and footer in the recipes companion.
 
 ```
 minHdr("Invoice", "{{company.name}}")
 lvGrid([["Invoice #:", "{{number}}"], ["Date:", "{{date}}"], ["Due:", "{{dueDate}}"]])
-gap(8)
 addrs({ label: "From", lines: [...] }, { label: "Bill to", lines: [...] })
-gap(8)
-const cols = [["Description", "45%"], ["Qty", "15%", "center"], ["Price", "20%", "right"], ["Amount", "20%", "right"]];
+const cols = [["Description", "1fr"], ["Qty", "auto", "center"], ["Price", "auto", "right"], ["Amount", "auto", "right"]];
 table(cols, "item in items", [cells...])
-totals([
-  ["Subtotal", "{{subtotal | currency}}"],
-  ["Tax",      "{{tax | currency}}"],
-  ["Total",    "{{total | currency}}", true],
-], cols)
-terms("Payment Terms", "{{terms}}")
+totals([["Subtotal", "..."], ["Tax", "..."], ["Total", "...", true]], cols)
 ftrPages("{{company.name}}")
 ```
 
-### Receipt
-
-```
-minHdr("Receipt", "{{company.name}}")
-lvGrid([["Receipt #:", "{{number}}"], ["Date:", "{{date}}"], ["Payment:", "{{paymentMethod}}"]])
-addr(["{{customer.name}}", "{{customer.address}}"])
-gap(8)
-table([headers...], "item in items", [cells...])
-totals([["Subtotal", "..."], ["Tax", "..."], ["Total Paid", "...", true]])
-terms("Return Policy", "{{returnPolicy}}")
-ftrPages()
-```
-
-### Quote / Estimate
-
-```
-minHdr("Quote", "{{company.name}}")
-lvGrid([["Quote #:", "{{number}}"], ["Date:", "{{date}}"], ["Valid Until:", "{{validUntil}}"]])
-addrs({ label: "From", lines: [...] }, { label: "To", lines: [...] })
-table([headers...], "item in items", [cells...])
-totals([...])
-terms("Terms & Conditions", "{{terms}}")
-sigBlock()
-ftrPages("{{company.name}}")
-```
-
-### Statement / Report
-
-```js
-// Date column budget:
-// - Full format ("2 March 2026"): 18% min of A4-page width at 10pt.
-//   (16% wraps at default padding -- leave a safety margin.)
-// - Short format ("02 Mar" or "2026-03-02"): 10-12% is fine.
-// Columns are percentages of page content-area width (minus padding) and
-// should sum to exactly 100%.
-const cols = [
-  ["Date", "18%"], // 18% min at default padding -- full-format dates wrap below this
-  ["Description", "42%"],
-  ["Debit", "13%", "right"],
-  ["Credit", "13%", "right"],
-  ["Balance", "14%", "right"],
-];
-
-minHdr("Statement", "{{company.name}}");
-lvGrid([
-  ["Period:", "{{period}}"],
-  ["Account:", "{{accountNumber}}"],
-]);
-// Optional summary box:
-col(
-  {
-    border: [1, 1, 1, 1],
-    "border-color": "#d1d5db",
-    "border-radius": 4,
-    padding: [10, 12, 10, 12],
-  },
-  bold(["Opening Balance: ", "{{openingBalance | currency}}"]),
-  s(["Closing Balance: ", "{{closingBalance | currency}}"])
-);
-table(cols, "tx in transactions", [
-  ["{{tx.date}}", "18%"],
-  ["{{tx.desc}}", "42%"],
-  [when("tx.debit", s("{{tx.debit | currency}}")), "13%", "right"],
-  [when("tx.credit", s("{{tx.credit | currency}}")), "13%", "right"],
-  ["{{tx.balance | currency}}", "14%", "right"],
-]);
-// Totals: omit `cols` here. Statement labels ("Interest Earned", "Closing
-// Balance") are 14-16 chars and need ~25% width. Passing `cols` would
-// give the label only 13% (the N-2 Credit column) and wrap every line.
-// The default layout is 60% spacer / 25% label / 15% value.
-totals([
-  ["Fees Charged", "{{fees | currency}}"],
-  ["Interest Earned", "{{interestEarned | currency}}"],
-  ["Closing Balance", "{{closingBalance | currency}}", true],
-]);
-ftrPages("{{company.name}}");
-```
-
-A cell's content slot accepts a `when()` wrapper for conditional rendering.
-Use this for columns populated on some rows but not others (debit/credit,
-discount, optional fees) — an empty cell stays blank instead of rendering
-the literal string `undefined`.
-
-> Wrapping inside a table cell is silent — nothing fails. If your data has
-> long strings (full-format dates, multi-word descriptions, amounts with
-> thousand separators), budget width generously and verify in the rendered
-> PDF (see §Post-render verification).
-
-### Letter
-
-```
-minHdr("", "{{sender.name}}")
-addr(["{{sender.name}}", "{{sender.address}}", "{{sender.city}}"])
-s("{{date}}")
-addr(["{{recipient.name}}", "{{recipient.address}}", "{{recipient.city}}"])
-gap(12)
-// Body paragraphs — each as a separate span with line-height 1.4.
-// Inline style keys are kebab-case, not camelCase: "font-size", "line-height" (not fontSize/lineHeight).
-s({ "font-size": 11, "line-height": 1.4 }, "{{salutation}}")
-s({ "font-size": 11, "line-height": 1.4 }, "{{body}}")
-gap(20)
-sigBlock()
-ftrPages()
-```
-
-### CV / Résumé
-
-Assembly order: name + headline → contact row → summary → experience (loop) → education (loop) → skills.
-
-```js
-const template = doc(
-  { size: "A4", title: "{{name}} — CV" },
-  // Name + headline.
-  // Style keys are kebab-case: "font-size", "font-weight" — NOT fontSize/fontWeight.
-  // camelCase keys produce unknown-style-property warnings and the styles do not apply.
-  s({ "font-size": 22, "font-weight": "bold" }, "{{name}}"),
-  s({ "font-size": 11, color: "#555555" }, "{{headline}}"),
-  // Contact row: inline icons/labels + link atoms. One row keeps width predictable.
-  text(
-    s("{{location}}"),
-    s("  ·  "),
-    link("mailto:{{email}}", "{{email}}"),
-    s("  ·  "),
-    link("{{github}}", "github.com/{{githubHandle}}")
-  ),
-  gap(8),
-  // Summary paragraph
-  s({ "font-size": 10, "line-height": 1.4 }, "{{summary}}"),
-  gap(10),
-  // Experience
-  s({ class: "section-heading" }, "Experience"),
-  each(
-    "job in experience",
-    r(
-      { grid: ["70%", "30%"] },
-      col("70%", bold("{{job.role}} — {{job.company}}")),
-      col({ width: "30%", align: "right" }, s({ color: "#666666" }, "{{job.from}} – {{job.to}}"))
-    ),
-    each("b in job.bullets", bullet("{{b}}"))
-  ),
-  gap(8),
-  // Education
-  s({ class: "section-heading" }, "Education"),
-  each(
-    "ed in education",
-    r(
-      { grid: ["70%", "30%"] },
-      col("70%", bold("{{ed.degree}} — {{ed.school}}")),
-      col({ width: "30%", align: "right" }, s({ color: "#666666" }, "{{ed.year}}"))
-    )
-  ),
-  gap(8),
-  // Skills — inline each() with separator suppression
-  s({ class: "section-heading" }, "Skills"),
-  text(each("sk in skills", mono("{{sk}}"), when("!@last", s(" · ")))),
-  ftrPages()
-);
-```
-
-Common gotchas:
-
-- **Date field names vary.** This recipe uses `{{job.from}}` / `{{job.to}}`
-  to match JSON Resume and most real-world résumé data. Other shapes
-  use `start`/`end` or `startDate`/`endDate` — match whatever the data
-  actually has; don't rename the data to match the recipe.
-- **Contact-line wrap.** If email + location are long, split the row into
-  two columns (contact left / links right) or drop the line-height to 1.2.
-- **Skills list** uses the inline-`each()` pattern — see Primitives for
-  the shape. If you pre-join into a single string you lose the
-  per-skill `mono()` styling.
-- **Two-page CVs** need column-flow layout, which the engine doesn't
-  support yet. Keep to one page by trimming summary/bullets, not by
-  shrinking the font below 9pt.
+For receipts, quotes, statements, letters, and CVs:
+fetch `/skills/pdf-recipes.md`.
 
 ### Common table column distributions
 
-- 3-col: 50% / 25% / 25%
-- 4-col: 40% / 15% / 20% / 25%
-- 5-col: 40% / 10% / 20% / 10% / 20%
+For line-item tables (description + numeric columns), default to one stretch + auto everywhere else:
+
+- 3-col: `["1fr", "auto", "auto"]`
+- 4-col: `["1fr", "auto", "auto", "auto"]` ← canonical invoice grid
+- 5-col: `["1fr", "auto", "auto", "auto", "auto"]`
+
+Percent grids (`["50%", "25%", "25%"]`) are only appropriate when every column is a layout panel rather than a data column — e.g. a two-up address block, a three-up KPI strip. The static checks treat `"%"` widths on numeric headers (Qty, Price, Amount, …) as errors, and a stretch header (Description, Item, …) without a `1fr`/`auto` companion as a warning.
 
 ### Dense tables (6+ columns)
 
@@ -634,8 +901,13 @@ Options, in order of preference:
    single cell ("$750.00 / PCS"); move HS Code to a secondary row below
    the description via `text(bold("HS "), muted("950630"))`.
 
-The `cols` array sum should be exactly `100%`. Mis-summed grids render but
-leave gaps or overflow; the validator does not currently warn.
+When you do use percent widths (layout panels, not line-item tables), the `cols` array sum should be exactly `100%`. Mis-summed grids render but
+leave gaps or overflow — the validator flags this as `grid-sum-mismatch`. Grids built from `auto` / `1fr` don't need to sum to anything.
+Dense tables on narrow portrait pages are flagged as `dense-table-hint`,
+and obviously-too-long text in a constrained cell as `likely-wrap`. The
+wrap check is heuristic (estimates glyph width as ~0.5 × em) — bold /
+condensed / non-Latin text may over- or under-trigger, so treat it as a
+pointer, not a verdict.
 
 ### Headers with long company names
 
@@ -650,6 +922,115 @@ Two fixes:
 - **Shrink the company type ramp:** pass an inline Element instead of a
   string — `minHdr("INVOICE", s({ "font-size": 12, "font-weight": "bold" }, "{{company.name}}"))`.
 
+### Bookmarks (document outline)
+
+Any element (page, column, row, text, span, img) accepts a `bookmark`
+attr — either a plain title string or `{ title, expanded? }`. Bookmarks
+become entries in the viewer's "Bookmarks" panel, and nesting is inferred
+from the element tree: a bookmark on a child becomes a child of the
+bookmark on its nearest bookmark-bearing ancestor.
+
+```js
+doc(
+  { size: "A4" },
+  page({ bookmark: "Cover" }, col(s({ class: "heading" }, "Annual Report"))),
+  page(
+    { bookmark: { title: "Financials", expanded: true } },
+    col({ bookmark: "Income statement" } /* ... */),
+    col({ bookmark: "Balance sheet" } /* ... */)
+  )
+);
+```
+
+Adding even one bookmark sets `/PageMode /UseOutlines` on the catalog so
+Acrobat and Preview open the outline panel by default. Keep titles
+terse — viewers truncate long labels.
+
+### Internal `#anchor` links
+
+Any element accepts an `id` attr that becomes an internal destination.
+Pass `#id` as the href to `link()` to jump to it — useful for
+tables-of-contents, "see Appendix A" cross-references, and
+footnote-style back-links.
+
+```js
+doc(
+  { size: "A4" },
+  page(col(s({ class: "heading" }, "Contents")), col(link("#summary", "Jump to summary"))),
+  page(col({ id: "summary" }, s({ class: "heading" }, "Summary")), col(s("…body copy…")))
+);
+```
+
+External URLs (`link("https://…", "…")`) keep working exactly as before
+— only hrefs starting with `#` resolve to internal destinations.
+Unknown ids fall through as external URIs so broken references are
+visible, not silent.
+
+### Stamps & watermarks (absolute positioning)
+
+`position: "absolute"` lifts an element out of flow and places it in page
+coordinates via `top` / `left` / `right` / `bottom`. Use for stamps, seals,
+badges, and watermarks. Absolute elements don't inflate parent heights and
+don't push siblings around.
+
+Supported style keys: `position`, `top`, `left`, `right`, `bottom`, `width`,
+`z-index` (paint order — higher paints on top), `opacity` (0–1),
+`transform: { rotate: deg, translate: [dx, dy] }` (rotation pivots around
+the element centre), `page-repeat: true` (clone onto every page for
+watermarks).
+
+Absolutes must live inside a `<page>` ancestor (or at doc-root for
+`page-repeat` watermarks). They are rendered as PDF `/Artifact` content so
+they don't pollute the tagged-PDF structure tree.
+
+```js
+// Diagonal PAID stamp on the first page, top-right corner
+text(
+  {
+    style: {
+      position: "absolute",
+      top: 80,
+      right: 40,
+      width: 160,
+      opacity: 0.35,
+      transform: { rotate: -18 },
+      "font-size": 36,
+      "font-weight": "bold",
+      color: "#b00020",
+      border: 3,
+      "border-color": "#b00020",
+      padding: [6, 12],
+      align: "center",
+    },
+  },
+  s("PAID")
+);
+
+// Full-page DRAFT watermark repeated on every page
+text(
+  {
+    style: {
+      position: "absolute",
+      top: 360,
+      left: 100,
+      width: 400,
+      opacity: 0.12,
+      transform: { rotate: -30 },
+      "font-size": 120,
+      "font-weight": "bold",
+      color: "#000000",
+      align: "center",
+      "page-repeat": true,
+    },
+  },
+  s("DRAFT")
+);
+```
+
+Not supported in V1: percentage coordinates, `transform-origin`, `scale` /
+`skew`. Use explicit `width` when you need the stamp to be narrower than the
+page.
+
 ### Footer vertical space
 
 `ftrPages()` renders a single row with a top border and 5pt top/bottom
@@ -661,11 +1042,17 @@ trims 10pt from all four edges without affecting the footer bar itself.
 
 ## Design Principles
 
+<!-- catalog:design-principles:start -->
+
 - **Visual hierarchy:** Title (18-24pt bold) > Section headings (12pt bold) > Body (10pt) > Captions (8pt gray)
-- **Colors:** Max 2-3 colors. Dark accent + white + one highlight.
-- **Alignment:** Right-align all numbers and monetary values. `align` is set on columns and inherited by children.
-- **Spacing:** 5-10pt margin between sections. Err on less spacing, not more.
-- **Page budget:** A4 has ~757pt usable height (842 - 60pt padding - 25pt footer). Estimate before outputting.
+- **Color palette:** Maximum 2-3 colors. Dark accent (e.g. #1e3a5f) + white + one highlight.
+- **Whitespace:** 30-40pt page padding. 5-10pt between major sections. 1-2pt between related items (address lines, label-value rows).
+- **Alignment:** Right-align all numbers and monetary values. Left-align all text. When the original shows a company/sender address in the top-right, right-align that entire block by putting "align": "right" on the PARENT COLUMN (not on spans or classes). Right-alignment must always be set on the column container -- it is inherited by children.
+- **Vertical space budget:** A4 = 842pt. After page padding (30pt x 2) and footer (~25pt), you have ~757pt of usable content height. BEFORE finalizing, estimate total height: count sections, multiply by average height (~60-80pt for text sections, ~25pt per table row), add all inter-section margins. If the estimate exceeds 757pt, reduce section margins to 5-8pt and use smaller font sizes (body 9pt, table cells 8pt).
+- **Page efficiency:** Keep spacing TIGHT. A single-page original must render as single-page. Err on the side of too little spacing rather than too much. For documents with 7+ top-level sections, use 5-8pt inter-section margins (NOT 10-15pt). Every point counts.
+- **Logos:** Reference an uploaded asset via `img({ src: "asset:<id>", alt: "<company> logo" })`. Users upload logos / signatures / stamps once at `/settings/assets` and reference them by stable opaque id. SVG and PNG/JPEG all work; bytes are owner-scoped (someone else's `asset:<id>` resolves to a placeholder). Set explicit `width` (80–120pt for invoice headers) so the image scales predictably. If no asset is available, fall back to a text placeholder at 14–16pt max — the logo is a small brand mark, not a giant heading. Avoid raw `https://` image URLs: they break when the host goes down and add latency to every render.
+- **Totals alignment:** When the original shows totals labels and values in separate columns aligned with the table, ALWAYS use M6 (row with empty + label + value columns). Only use M7 (combined) when the original clearly shows "Label: $value" as a single right-aligned text block.
+<!-- catalog:design-principles:end -->
 
 ## Rules
 
@@ -681,6 +1068,20 @@ trims 10pt from all four edges without affecting the footer bar itself.
 10. **No images unless data contains image URLs.**
 11. **Verify the rendered PDF, not just the validator.** See §Post-render verification.
 
+## DSL Traps
+
+Concrete shapes the builder accepts that tripped up earlier versions — most are now fixed, but the safe spelling is still worth knowing.
+
+- **`s()` 3-arg form works:** `s(".label", { "font-size": 10 }, "Hello")` merges the style into the span's `attr`. When in doubt, prefer the inline form `s({ class: "label", "font-size": 10 }, "Hello")` — both are equivalent. Never write `s("italic", "…")` / `s("bold", "…")` / `s("mono", "…")` / `s("link", "…")` — those throw. Use the helpers `italic(...)` / `bold(...)` / `mono(...)` / `link(...)`, or the class form `s(".italic", "…")`.
+- **`col(width, attr, ...kids)` / `r(width, attr, ...kids)` work:** `col("40%", { align: "right" }, s("x"))` is valid. `col({ width: "40%", align: "right" }, s("x"))` is also valid and reads more clearly — pick the form that matches the rest of the file.
+- **Class shorthand `".foo"` only works as the FIRST arg.** `s(".foo", …)` is fine; `col(".foo", …)` is fine. But `col("50%", ".foo", …)` does NOT apply the class — `.foo` falls through to kids and renders as literal text. The validator rule `class-string-as-child` now catches this. Use `col("50%", { class: "foo" }, …)` or `col({ width: "50%", class: "foo" }, …)` instead.
+- **Border shorthand:** prefer the string form `border: "1px solid #000"` or the tuple form `border: [1, 1, 1, 1]` + separate `"border-color": "#000"`. **Do not** write `border: [1, "solid", "#000"]` — that mixes widths and colours and renders silently wrong.
+- **Percent grids must sum to 100%.** Only relevant if you're using percents — line-item tables should use `["1fr", "auto", "auto", …]` instead, which never needs to sum. When you do use percents (layout panels), mismatches become `grid-sum-mismatch` warnings; e.g. a 5-column percent grid should be `["40%", "20%", "10%", "10%", "20%"]`, not `["40%", "8%", "10%", "16%", "16%"]`.
+- **Preserve input data types.** If the input `sampleData.items[0].qty` is a number, keep it a number in the generated `sampleData`. Stringifying numerics (e.g. `qty: "2"` instead of `qty: 2`) breaks `| currency` / `| number` filters and arithmetic in expressions.
+- **No ES default parameters in arrows.** The DSL executor does not support default-parameter syntax — `(s, n = 8) => s.padStart(n)` throws `Cannot evaluate AssignmentPattern`. Inline the constant (`(s) => s.padStart(8)`) or hoist a separate helper. Rest params are fine; destructured defaults are not.
+- **`transform` is an object, not a CSS string.** Write `transform: { rotate: 45 }` or `transform: { rotate: -18, translate: [0, 20] }` — **not** `transform: "rotate(45deg)"`. The string form is silently ignored (rotation falls back to 0°). See §Stamps & watermarks for the full spec. Also: `transform` only applies to `position: "absolute"` elements; setting it on an in-flow row/column does nothing.
+- **`pageNum()` returns an array, not a single node.** It expands to `["Page ", thisPage(), " of ", totalPages()]` — four kids. Wrapping it in `s({...}, pageNum())` makes the span's `kids[0]` an array and fails the catalog validator with `"span" has an array in kids[0]`. Always use `ftrPages("…footer text…")` (the helper spreads the kids correctly) or, if you genuinely need a custom footer, spread: `s({...}, ...pageNum())`.
+
 ## Common Errors & Fixes
 
 - **`object is not iterable`** — you passed a bare Element where a tuple
@@ -693,7 +1094,8 @@ trims 10pt from all four edges without affecting the footer bar itself.
   and pass the span(s) directly: `td(bold("X"), "20%")` or
   `td([bold("Qty: "), "25"], "20%")`.
 - **Row children overflow or leave a gap** — `grid` / cell widths don't
-  sum to 100%. Recalculate; the validator doesn't warn about this yet.
+  sum to 100%. Recalculate; the validator flags this as `grid-sum-mismatch`
+  when percent widths fall outside 98–102%.
 - **A numeric column looks left-aligned when you asked for right** —
   `align` must be on the `col()` (or the cell tuple's 3rd slot), not on
   the inner `span`. Column `align` is inherited by children.
@@ -755,10 +1157,10 @@ catches shape; only the rendered PDF catches content.
 
 ```javascript
 const cols = [
-  ["Description", "45%"],
-  ["Qty", "15%", "center"],
-  ["Price", "20%", "right"],
-  ["Amount", "20%", "right"],
+  ["Description", "1fr"],
+  ["Qty", "auto", "center"],
+  ["Price", "auto", "right"],
+  ["Amount", "auto", "right"],
 ];
 const template = doc(
   { size: "A4", title: "Invoice {{invoiceNumber}}" },
@@ -775,10 +1177,10 @@ const template = doc(
   ),
   gap(8),
   table(cols, "item in items", [
-    ["{{item.description}}", "45%"],
-    ["{{item.qty}}", "15%", "center"],
-    ["{{item.price | currency}}", "20%", "right"],
-    ["{{item.amount | currency}}", "20%", "right"],
+    ["{{item.description}}", "1fr"],
+    ["{{item.qty}}", "auto", "center"],
+    ["{{item.price | currency}}", "auto", "right"],
+    ["{{item.amount | currency}}", "auto", "right"],
   ]),
   totals(
     [
@@ -811,6 +1213,8 @@ const sampleData = {
 ```
 
 ---
+
+<!-- embedded:skip:start -->
 
 ## Reproducing an existing document
 
@@ -910,270 +1314,50 @@ Reproduction work adds these on top of §Design Principles and §Rules — don't
 
 The A4 `~757pt` vertical budget, `thisPage()` / `totalPages()` tags for page numbers, and top-level `ftr()` placement are already covered in §Design Principles and §Rules.
 
+<!-- embedded:skip:end -->
+
 ---
+
+<!-- embedded:skip:start -->
 
 ## Authentication
 
-Every `/api/v1/*` endpoint requires a Bearer token. **If you don't already
-have one, do not ask the user for their email and password — run the OAuth
-device flow instead.** It exists so AI agents and CLIs can authenticate
-without ever handling the user's credentials.
+> **Full agent walkthrough lives in
+> [`/skills/pdf-auth.md`](https://makespdf.com/skills/pdf-auth.md).**
+> Read that companion if you don't already have a Bearer token — it
+> covers the OAuth device flow (RFC 8628), why you should never ask the
+> user for an email and password, and the right error-handling for each
+> step.
 
-### Device authorization flow (RFC 8628)
-
-1. **Request a code.** No auth required:
-
-   ```
-   POST /api/v1/device/code
-   Content-Type: application/json
-
-   { "client_name": "Claude" }
-   ```
-
-   Response:
-
-   ```json
-   {
-     "device_code": "<long opaque string, keep secret>",
-     "user_code": "ABCD-1234",
-     "verification_uri": "https://makespdf.com/device",
-     "verification_uri_complete": "https://makespdf.com/device?code=ABCD-1234",
-     "expires_in": 600,
-     "interval": 5
-   }
-   ```
-
-2. **Show the user the verification URL and code.** A good prompt:
-
-   > "To let me render PDFs on your account, open
-   > **https://makespdf.com/device?code=ABCD-1234** in your browser and
-   > click Approve. The code is **ABCD-1234** — make sure it matches what
-   > the page shows. **Tell me when you've approved and I'll finish up.**"
-
-   **If you have browser tools, stop browsing now.** Do not open the
-   verification URL, do not navigate, do not click — your part of the flow
-   is done until the human signs in and approves. Polling (step 3) is a
-   server-to-server API call; no browser needed. Opening `/device` yourself
-   will hit a login screen, and the account that gets charged is whoever
-   signs in — so unless your user is already signed in on that profile,
-   you are about to register or log in on their behalf. Don't.
-
-3. **Wait for the user to approve, then fetch the token.** Do not poll.
-   Ask the user to tell you when they've clicked Approve; when they do,
-   make **one** request to exchange the device code for an access token:
-
-   ```
-   POST /api/v1/device/token
-   Content-Type: application/json
-
-   { "device_code": "<from step 1>" }
-   ```
-
-   - HTTP 200 `{ "access_token": "mpdf_...", "token_type": "Bearer" }` —
-     you're done.
-   - HTTP 400 `{ "error": "authorization_pending" }` — the approval hasn't
-     landed yet. Ask the user to double-check the browser page and tell
-     you when the "Approved" confirmation is visible, then try once more.
-   - HTTP 403 `{ "error": "access_denied" }` — user declined. Stop.
-   - HTTP 410 `{ "error": "expired_token" }` — the 10-minute window
-     elapsed. Start over from step 1.
-
-   Why not poll: you have a human in the loop. The user is the trigger,
-   not a clock. Polling while waiting scrolls the approval prompt out of
-   the user's view and adds no information. Make a single call when the
-   user says they're ready.
-
-   _Automated harnesses_ with no interactive user (CI smoke tests,
-   scripted demos) may fall back to polling `/device/token` on the
-   `interval` from step 1. This is allowed but noisy — prefer user-driven
-   confirmation when a user is present.
-
-4. **Use the token** as `Authorization: Bearer <access_token>` on every
-   subsequent `/api/v1/*` request. Persist it locally so you don't have to
-   re-run the flow next time.
-
-### Don't do this
-
-- ❌ Asking the user for an email and password directly. There is no
-  password endpoint to send them to.
-- ❌ Asking the user to paste an API key when no token is available. The
-  device flow is faster, safer, and doesn't require them to leave their
-  current task to go generate one.
-- ❌ **Registering an account on the user's behalf.** If the device approval
-  page (`/device?code=…`) shows a login screen when you open it in a
-  browser MCP, stop. Tell the user: "I've requested a device code — please
-  sign in at \<verification_uri_complete\> and click Approve." Wait for
-  them. Never click through a registration form or submit credentials
-  yourself. The account owner is the person whose credits get charged; it
-  must be a human decision.
-- ❌ Signing in with credentials the user has not just typed into your
-  chat. Even if you have them from a previous turn, re-prompt or hand
-  control back — do not auto-fill the login form.
-- ❌ Calling `/api/v1/preview` or `/api/v1/md` without a Bearer token and
-  hoping it works. Every endpoint requires auth — anonymous access does
-  not exist, even in dev.
-
-If a request returns 401, parse the response body — it contains a
-`device_authorization` block with the exact URLs to use.
+Once you have a token, set `Authorization: Bearer <token>` on every
+`/api/v1/*` request. Authentication is the default — every endpoint
+requires a token unless it's an explicit carve-out (today: `POST
+/api/v1/pdf/validate` and, when the operator enables it, `POST
+/api/v1/md`). Stale / invalid tokens always 401; the server never
+silently downgrades a failed auth attempt to anonymous. A 401 response
+carries a `device_authorization` block pointing at the exact URLs to
+start the OAuth device flow.
 
 ---
 
-## Preview API
+## API endpoints
 
-Render your template by sending it to the preview endpoint. The `dsl` field
-is **your DSL script serialized as a JSON string** — newlines escaped as
-`\n`, double quotes escaped as `\"`. `data` is the JSON object your
-`{{variables}}` resolve against; omit it and the engine falls back to the
-`sampleData` declared inside the script.
+> **The how-to-call-it reference for every endpoint lives in
+> [`/skills/pdf-api.md`](https://makespdf.com/skills/pdf-api.md).** That
+> companion covers `POST /api/v1/preview` (free draft renders), `POST
+/api/v1/render` (billed renders against a saved template), `POST
+/api/v1/preview/validate` (catalog + a11y check, no render), error
+> codes, billing rules, and the `jq`-based shell pattern for sending
+> multi-line DSL.
 
-```
-POST /api/v1/preview
-Authorization: Bearer <your access_token>
-Content-Type: application/json
+Two-line cheat sheet:
 
-{
-  "dsl": "const template = doc({ size: \"A4\" }, page(col(s(\"Hello {{name}}\"))));\nconst sampleData = { name: \"World\" };",
-  "data": { "name": "Ada" }
-}
-```
+- **Authoring / iterating:** `POST /api/v1/preview { dsl, data }` →
+  PDF binary. Free, watermarked, string filler.
+- **Production:** `POST /api/v1/templates { dsl, name }` → save once,
+  then `POST /api/v1/render { templateId, data }` → PDF binary.
+  Billed at 1 credit / 10 pages.
 
-Runnable curl with a tiny template inline (multi-line DSL goes in a file —
-see §Sending DSL from a shell):
+Custom fonts: see [`/skills/pdf-fonts.md`](https://makespdf.com/skills/pdf-fonts.md).
 
-```bash
-curl -X POST "$API/api/v1/preview" \
-  -H "Authorization: Bearer $MAKESPDF_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"dsl":"const template = doc({ size: \"A4\" }, page(col(s(\"Hello {{name}}\"))));\nconst sampleData = { name: \"World\" };","data":{"name":"Ada"}}' \
-  -o hello.pdf
-```
-
-Response: PDF binary (default) or JSON metadata (with `Accept: application/json` header).
-
-Responses on the free / dev tier include a small `makespdf.com` attribution
-line in the footer area. Paid tiers remove it.
-
-### Sending DSL from a shell
-
-The `dsl` field is a JSON string, so embedding a multi-line DSL script
-inline is awkward (template-literal backticks, escaped newlines, `{{…}}`
-syntax that linters misread as JS interpolation). Write the DSL to a file,
-then build the JSON payload with `jq`:
-
-```bash
-cat > template.js <<'EOF'
-const cols = [["Description", "50%"], ["Qty", "20%", "right"], ["Amount", "30%", "right"]];
-const template = doc({ size: "A4" }, minHdr("Invoice", "Acme Corp") /* … */);
-const sampleData = { /* … */ };
-EOF
-
-jq -n --rawfile dsl template.js --argjson data "$(cat data.json)" \
-  '{ dsl: $dsl, data: $data }' |
-  curl -sX POST "${API}/api/v1/preview" \
-    -H "Authorization: Bearer $MAKESPDF_API_KEY" \
-    -H "Content-Type: application/json" \
-    --data-binary @- -o invoice.pdf
-```
-
-`jq -n --rawfile` avoids manually escaping newlines and quotes. If you
-don't have a separate `data.json`, omit the `--argjson data` and drop
-`data: $data` — the engine will fall back to the script's `sampleData`.
-
----
-
-## Render API
-
-Once a template is stable, save it once and render it many times with
-different data. Two steps:
-
-**1. Save the template** (free, `POST /api/v1/templates`):
-
-```bash
-jq -n --rawfile dsl template.js --arg name "Acme invoice" \
-  '{ dsl: $dsl, name: $name }' |
-  curl -sX POST "$API/api/v1/templates" \
-    -H "Authorization: Bearer $MAKESPDF_API_KEY" \
-    -H "Content-Type: application/json" \
-    --data-binary @-
-# → { "templateId": "…uuid…", "name": "Acme invoice", "createdAt": … }
-```
-
-**2. Render with data** (billed, `POST /api/v1/render`):
-
-```
-POST /api/v1/render
-Authorization: Bearer <your access_token>
-Content-Type: application/json
-
-{
-  "templateId": "11111111-2222-3333-4444-555555555555",
-  "data": { "invoiceNumber": "INV-042", "items": [ … ] }
-}
-```
-
-```bash
-curl -X POST "$API/api/v1/render" \
-  -H "Authorization: Bearer $MAKESPDF_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"templateId":"…uuid…","data":{ … }}' \
-  -o invoice.pdf
-```
-
-Response: PDF binary (default) or JSON metadata (with
-`Accept: application/json`). Headers include `X-Pages`, `X-Credits-Deducted`,
-`X-Credits-Remaining`.
-
-Error responses:
-
-- **400** — malformed JSON, missing `templateId`, non-UUID `templateId`, or
-  non-object `data`.
-- **401** — no valid Bearer token / session cookie.
-- **402** — credits exhausted. Upgrade or top up at `/settings/billing`.
-- **404** — `templateId` is unknown **or** not owned by the caller. The
-  response is identical in both cases by design — the endpoint never
-  confirms existence of other users' templates.
-- **429** — rate limit (200 renders/hour per caller).
-
-**Billing:** 1 credit per 10 pages on success. **Every failure path
-deducts zero credits** — validation errors, 404s, 402s, and render
-exceptions all leave the balance untouched.
-
----
-
-## Validation API
-
-Before rendering, validate your template for structure and accessibility issues:
-
-```
-POST /api/v1/preview/validate
-Authorization: Bearer <your access_token>
-Content-Type: application/json
-
-{
-  "dsl": "<your DSL script as a string>"
-}
-```
-
-Response:
-
-```json
-{
-  "valid": true,
-  "issues": [
-    {
-      "severity": "warning",
-      "message": "Image missing alt text ...",
-      "path": "kids[0].kids[2]",
-      "rule": "a11y-missing-alt"
-    }
-  ],
-  "summary": { "errors": 0, "warnings": 1 }
-}
-```
-
-This is a cheap pre-flight check (no rendering). It catches:
-
-- **Catalog issues**: unknown tags, invalid nesting, unknown style properties, missing row widths
-- **Accessibility issues**: images missing alt text (required for PDF/UA-1)
-
-**Best practice:** Always call `/api/v1/preview/validate` before `/api/v1/preview`. If issues are found, fix them and re-validate. Report any warnings to the user so they can make informed decisions about accessibility.
+<!-- embedded:skip:end -->
