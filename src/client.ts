@@ -2,7 +2,7 @@
  * Thin fetch wrapper for the makesPDF HTTP API.
  *
  * Responsibilities:
- *   - Attach the Authorization header.
+ *   - Attach the Authorization and client-identity headers.
  *   - Turn non-2xx responses into typed `ApiError`s (exit-code 2).
  *   - Turn network/DNS failures into `NetworkError`s (exit-code 3).
  *   - Return the response body typed as either bytes or JSON.
@@ -10,6 +10,8 @@
  * Deliberately free of retries, backoff, caching, and progress indicators —
  * the CLI is a thin pipe to the API.
  */
+
+import { clientHeaders } from "./client-info.js";
 
 export class ApiError extends Error {
   override readonly name = "ApiError";
@@ -78,9 +80,8 @@ export class ApiClient {
     const url = `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
     const expect = opts.expect ?? "bytes";
     const headers: Record<string, string> = {
-      "Content-Type": "application/json",
+      ...clientHeaders(),
       Authorization: `Bearer ${this.apiKey}`,
-      "User-Agent": "@makespdf/cli",
     };
     if (expect === "json") headers.Accept = "application/json";
 

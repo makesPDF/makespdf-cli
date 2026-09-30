@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { CLIENT_HEADER, CLIENT_NAME } from "./client-info.js";
 import { ApiClient, ApiError, NetworkError } from "./client.js";
 
 function makeFetch(response: Partial<Response>): typeof fetch {
@@ -27,6 +28,7 @@ describe("ApiClient", () => {
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe("Bearer secret");
     expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(init.headers[CLIENT_HEADER]).toBe(CLIENT_NAME);
     expect(init.body).toBe(JSON.stringify({ markdown: "# hi" }));
   });
 
