@@ -1,5 +1,6 @@
 import { defineCommand } from "citty";
 import { hostname } from "node:os";
+import { clientHeaders } from "../client-info.js";
 import { resolveBaseUrl, loadConfig, saveConfig, configPath } from "../config.js";
 import { EXIT, fail } from "../errors.js";
 import { openBrowser } from "../open-browser.js";
@@ -56,7 +57,7 @@ export const loginCommand = defineCommand({
     try {
       codeHttp = await fetch(`${baseUrl}/api/v1/device/code`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "User-Agent": "@makespdf/cli" },
+        headers: clientHeaders(),
         body: JSON.stringify({ client_name: hostname() }),
       });
     } catch (err) {
@@ -112,7 +113,7 @@ export const loginCommand = defineCommand({
       try {
         pollRes = await fetch(`${baseUrl}/api/v1/device/token`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "User-Agent": "@makespdf/cli" },
+          headers: clientHeaders(),
           body: JSON.stringify({ device_code: codeRes.device_code }),
         });
       } catch (err) {
