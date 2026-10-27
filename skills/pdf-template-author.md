@@ -63,9 +63,12 @@ the URL shown.
   Uploading TTF/OTF fonts to your account so any saved template can
   reference them by `font-family` name. Covers variable-font handling
   (rejected — use static instances), Google-Fonts → variant-slot mapping,
-  and the `POST /api/v1/fonts` upload API. Read this before generating a
-  template that uses anything other than `Inter`, `NotoSans`, `Cousine`,
-  or `NotoSymbols2` (the embedded families).
+  the `POST /api/v1/fonts` upload API, and the profile default font
+  (`PUT /api/v1/preferences`, or /settings/fonts): templates without an
+  explicit root `font-family` render in the caller's default on `/preview`
+  and `/render` instead of silently falling back to `Inter`. Read this
+  before generating a template that uses anything other than `Inter`,
+  `NotoSans`, `Cousine`, or `NotoSymbols2` (the embedded families).
 
 - **Server-side integration** —
   [`/skills/pdf-integration.md`](https://makespdf.com/skills/pdf-integration.md).
@@ -177,7 +180,13 @@ genuinely better fit for the input:
     main one is strikethrough (`~~text~~`); table HTML comment directives
     (`<!-- borderless -->`, `<!-- full-width -->`, `<!-- columns: … -->`);
     GFM alerts (`> [!NOTE]`, `> [!WARNING]`, etc.); Mermaid diagrams in
-    fenced code blocks; footnotes (`[^1]`).
+    fenced code blocks; footnotes (`[^1]`). Data charts do not need
+    Markdown: the DSL has `chart()` for bar, line and pie charts.
+  - You want footer page numbers without authoring a template: set
+    `pageNumbers` (`page-n-of-total` → "Page 3 of 12", `n-of-total` →
+    "3 / 12", `n` → "3") and optionally `pageNumberPosition` (`left` /
+    `center` / `right`, default `right`), as body options or YAML
+    frontmatter. Off by default.
 
 Everything else the DSL does more cleanly. A prose-heavy PDF with
 occasional emphasis is a perfectly reasonable DSL document — use
@@ -216,7 +225,9 @@ claude mcp add --transport http makespdf \
   --header "Authorization: Bearer $MAKESPDF_API_KEY"
 ```
 
-Ten tools, mirroring the REST endpoints used throughout this skill:
+Eleven tools — ten mirroring the REST endpoints used throughout this skill,
+plus `report_feedback` (no REST twin), which reports a problem back to the
+makesPDF team:
 
 | Tool                 | Mirrors                         | Billing                          |
 | -------------------- | ------------------------------- | -------------------------------- |
@@ -230,6 +241,7 @@ Ten tools, mirroring the REST endpoints used throughout this skill:
 | `delete_template`    | `DELETE /api/v1/templates/:id`  | free                             |
 | `render_template`    | `POST /api/v1/render`           | **billed** — 1 credit / 10 pages |
 | `render_markdown`    | `POST /api/v1/md`               | **billed** — 1 credit / 10 pages |
+| `report_feedback`    | — (no REST twin)                | free                             |
 
 Library browsing uses the same template tools: `list_templates` with
 `owner: "library"` to discover curated templates, `get_template` to pull
@@ -257,6 +269,49 @@ Output ONLY valid JavaScript. No markdown fences, no explanations. The script mu
 
 - `const template = doc({...}, ...sections)` — the document template
 - `const sampleData = {...}` — example data matching the template's `{{variables}}`
+
+### Script shape
+
+The script is data, not a program: only `const` declarations at the top
+level — no `for`/`while` loops, no `if` statements, no bare identifiers.
+Five shapes cover nearly every failure:
+
+- **Repeat with `each()`, not a loop.** `each("book in books", col(...))`
+  iterates; a `for` statement throws.
+- **Write `sampleData` literally** — two or three plain items, no
+  `Array.from`, no computed values. Small data is fine; the template
+  repeats it at render time.
+- **Every text string lives in `s()`** (or `text()`). A bare string child
+  of `col()` fails validation — write `col(s("Owner: {{owner}}"))`, never
+  `col("Owner: {{owner}}")`.
+- **`each()` / `when()` take kids as separate args**, never one array:
+  `each("b in books", col(...))`, not `each("b in books", [col(...)])`.
+- **`when()` sits between block siblings**, never inside `text()`.
+
+Worked example (generic — adapt the shape, not the content):
+
+```javascript
+const template = doc(
+  { size: "A4", title: "Reading list" },
+  col(
+    s(".heading", "Reading list"),
+    s("Owner: {{owner}}"),
+    gap(8),
+    each("book in books", col(s("{{book.title}}"), s(".small", "{{book.author}}"))),
+    when("notes", s(".small", "Notes: {{notes}}"))
+  ),
+  ftrPages()
+);
+
+const sampleData = {
+  owner: "J. Rivera",
+  books: [
+    { title: "The Dispossessed", author: "U. Le Guin" },
+    { title: "Pilgrim at Tinker Creek", author: "A. Dillard" },
+  ],
+  notes: "",
+};
+```
 
 ---
 
@@ -286,13 +341,17 @@ The §Design Principles and §Rules sections are short and load-bearing — alwa
 
 `doc(opts, ...sections)` — Creates the document.
 
-Options: `{ size, title, author, subject, keywords, styles, padding }`
+Options: `{ size, title, author, subject, keywords, lang, styles, padding }`
 
 - `size`: `"A4"`, `"A3"`, `"A5"`, `"Letter"`, `"Legal"` (default A4)
 - `title`: Document title, can use `{{variables}}`
 - `author`: Document author -> `/Author` + `dc:creator`
 - `subject`: One-line description of the document -> `/Subject` + `dc:description`
 - `keywords`: Topic keywords, an array or a comma-separated string -> `/Keywords`
+- `lang`: Document language as a BCP 47 tag (`"ja"`, `"zh-Hant"`, `"ko"`...). Sets the PDF `/Lang`
+  and picks the built-in CJK font — Chinese, Japanese and Korean text renders with no font
+  upload. Without it the script is inferred from the text (kana -> Japanese, Hangul -> Korean,
+  else Simplified Chinese). See `/skills/pdf-fonts.md`.
 - `styles`: Custom style classes to merge with the standard kit
 - `padding`: Page padding in points (default 30)
 
@@ -357,22 +416,22 @@ but their explicit `font-size` still wins, which is what you want.
 
 ### Primitives
 
-| Function                                               | Purpose                                                                                                    |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `page(styleOrKid?, ...kids)`                           | Page element                                                                                               |
-| `col(widthOrClassOrStyle?, ...kids)`                   | Column (vertical stack). First arg: `"50%"` = width, `".body"` = class, `{style}` = inline style           |
-| `r(styleOrKid?, ...kids)`                              | Row (horizontal layout)                                                                                    |
-| `s(text)` or `s(".class", text)` or `s({style}, text)` | Span (text content)                                                                                        |
-| `text(...spans)` or `text(".class", ...spans)`         | Inline text block — children flow on one line. Use for mixed styles: `text(bold("Date: "), s("15 March"))` |
-| `hdr(...kids)`                                         | Header (repeated top of every page)                                                                        |
-| `ftr(...kids)`                                         | Footer (repeated bottom of every page)                                                                     |
-| `img(src, w, h)`                                       | Image (requires URL, width, height)                                                                        |
-| `thisPage()`                                           | Current page number tag                                                                                    |
-| `totalPages()`                                         | Total page count tag                                                                                       |
-| `each(expr, ...kids)`                                  | Loop: `each("item in items", r(...))`. Inline form: inside `text(each(...))` children flow on one line     |
-| `when(expr, ...kids)`                                  | Conditional: `when("discount > 0", ...)`. Supports negation: `when("!@last", s(", "))`                     |
-| `elseWhen(expr, ...kids)`                              | Else-if branch                                                                                             |
-| `otherwise(...kids)`                                   | Else branch                                                                                                |
+| Function                                                  | Purpose                                                                                                    |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `page(styleOrKid?, ...kids)`                              | Page element                                                                                               |
+| `col(widthOrClassOrStyle?, ...kids)`                      | Column (vertical stack). First arg: `"50%"` = width, `".body"` = class, `{style}` = inline style           |
+| `r(styleOrKid?, ...kids)`                                 | Row (horizontal layout)                                                                                    |
+| `s(text)` or `s(".class", text)` or `s({style}, text)`    | Span (text content)                                                                                        |
+| `text(...spans)` or `text(".class", ...spans)`            | Inline text block — children flow on one line. Use for mixed styles: `text(bold("Date: "), s("15 March"))` |
+| `hdr(...kids)`                                            | Header (repeated top of every page)                                                                        |
+| `ftr(...kids)`                                            | Footer (repeated bottom of every page)                                                                     |
+| `img(src, w, h)` or `img({ src, alt?, width?, height? })` | Image. `alt` is the accessible description; dimensions optional in object form                             |
+| `thisPage()`                                              | Current page number tag                                                                                    |
+| `totalPages()`                                            | Total page count tag                                                                                       |
+| `each(expr, ...kids)`                                     | Loop: `each("item in items", r(...))`. Inline form: inside `text(each(...))` children flow on one line     |
+| `when(expr, ...kids)`                                     | Conditional: `when("discount > 0", ...)`. Supports negation: `when("!@last", s(", "))`                     |
+| `elseWhen(expr, ...kids)`                                 | Else-if branch                                                                                             |
+| `otherwise(...kids)`                                      | Else branch                                                                                                |
 
 `each()` produces either block children (rows, columns) or inline children
 (spans) depending on context. Inside `text(each(...))`, each iteration
@@ -646,6 +705,131 @@ qr("https://pay.example.com/inv/{{invoice.number}}", {
 
 ---
 
+## Charts (`chart()`)
+
+`chart(options)` draws a bar, line, pie or scatter chart from rows of data as native PDF vector graphics, tagged as a `/Figure`. Pass `data` as a `"{{path}}"` reference so the chart is drawn from each render's data; an inline array of rows also works.
+
+```js
+chart({
+  type: "bar", // "bar" | "line" | "pie" | "scatter"
+  data: "{{monthly}}", // array of row objects, or a {{path}} to one
+  x: "month", // row field for the category / slice label
+  y: [
+    { key: "revenue", label: "Revenue" },
+    { key: "cost", label: "Cost", color: "#e15759" },
+  ], // or a single field name: y: "revenue"
+  width: 480, // points, required
+  height: 220, // points, required
+  title: "Revenue vs cost",
+  "x-title": "Month",
+  "y-title": "USD",
+});
+// sampleData: { monthly: [{ month: "Jan", revenue: 50000, cost: 30000 }, ...] }
+```
+
+For a scatter plot, `x` names a **numeric** row field and both axes become value axes; `x-min` / `x-max` bound the x axis (scatter only):
+
+```js
+chart({
+  type: "scatter",
+  data: "{{samples}}",
+  x: "load", // numeric x field
+  y: { key: "ms", label: "Response time" },
+  width: 480,
+  height: 220,
+  "x-title": "Load",
+  "y-title": "Response time (ms)",
+  "x-min": 0,
+  "x-max": 100,
+});
+// sampleData: { samples: [{ load: 12, ms: 210 }, { load: 40, ms: 380 }, ...] }
+```
+
+| Option               | Default                                 | Notes                                                                                                    |
+| -------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `type`               | required                                | `bar` (grouped, or stacked with `stacked: true`), `line`, `pie`, or `scatter`                            |
+| `data`               | required                                | Rows are objects; `x` and `y` name their fields                                                          |
+| `x`, `y`             | required                                | `y`: field name, or array of names / `{ key, label?, color?, type?, axis? }`; for scatter `x` is numeric |
+| `width`, `height`    | required                                | Points. The chart is drawn to exactly this box                                                           |
+| `title`              | none                                    | Bold, centred above the plot                                                                             |
+| `x-title`, `y-title` | none                                    | Axis titles (bar/line/scatter)                                                                           |
+| `y-min`, `y-max`     | from data                               | Bars always include 0; lines and scatter fit the data                                                    |
+| `y2-title`           | none                                    | Right-axis title; requires a series with `axis: "right"`                                                 |
+| `y2-min`, `y2-max`   | from data                               | Right-axis bounds; requires a series with `axis: "right"`                                                |
+| `x-min`, `x-max`     | from data                               | Scatter only; a bound that leaves no room for the data is ignored, with a warning                        |
+| `stacked`            | `false`                                 | Bar only: stack the series in each category                                                              |
+| `horizontal`         | `false`                                 | Bar only: draw bars left-to-right, categories down the left                                              |
+| `legend`             | pie, or bar/line/scatter with 2+ series | `false` hides it                                                                                         |
+| `colors`             | Tableau 10 palette                      | Cycled per series (bar/line/scatter) or per slice (pie)                                                  |
+| `font-size`          | `8`                                     | Axis labels and legend; the title is 1.25x                                                               |
+| `font-family`        | `"Inter"`                               | `"Inter"` or `"Noto Sans"`                                                                               |
+| `alt`                | generated                               | See accessibility below                                                                                  |
+
+**Values.** Numbers, or numeric strings such as `"$1,200.50"`, `"45%"` or `"(300)"` (a negative). A missing or non-numeric value, including text that only contains digits (`"Q1 2024"`), leaves a gap (a missing bar, a break in the line, a skipped scatter point). Pie charts use the first `y` field only and leave out zero and negative values; they read best with 8 slices or fewer, since the palette repeats after 10. Scatter charts plot a point per row where both `x` and `y` parse as numbers; a row missing either is skipped with a warning. Up to 500 rows and 20 `y` fields are plotted.
+
+**Stacked bars.** On a bar chart, `stacked: true` stacks the series within each category instead of grouping them, with the first `y` series at the bottom. Positive values stack upward from zero and negative values downward, and the value axis fits the stacked totals rather than the individual series. A missing or non-numeric value contributes nothing to its stack, so the segments above it sit directly on the last drawn one (unlike a grouped bar, which leaves a gap). `stacked` is bar-only: `line` and `pie` reject it. The generated alt text adds each category's total.
+
+```js
+chart({
+  type: "bar",
+  data: "{{revenue}}",
+  x: "month",
+  y: [
+    { key: "widgets", label: "Widgets" },
+    { key: "gadgets", label: "Gadgets" },
+  ],
+  stacked: true,
+  width: 480,
+  height: 220,
+});
+```
+
+**Horizontal bars.** `horizontal: true` turns a bar chart on its side: categories run down the left axis in data order (first row at the top) and values run left-to-right from the zero baseline along the bottom axis. Use it for ranked lists and long category names, which vertical bars have to thin or truncate. Category labels are right-aligned against the axis, truncated when they need more than 35% of the chart width. The option names keep their meaning rather than their position: `x-title` still labels the category axis (drawn down the left side), `y-title` still labels the value axis (under the numbers), and `y-min` / `y-max` still bound the value axis. Combines with `stacked: true` for horizontal stacked bars; too many categories to keep bars at least 2pt thick — or to give every label a line of its own — draws the "Chart too small" placeholder with a warning. The horizontal renderer draws bars only, so a per-series `type` or `axis` (a combo or a right-hand axis) is rejected on a horizontal chart.
+
+```js
+chart({
+  type: "bar",
+  data: "{{spend}}",
+  x: "department",
+  y: "amount",
+  horizontal: true,
+  width: 480,
+  height: 220,
+});
+```
+
+**Mixed bars and lines (combo).** A `y` series can override the chart's `type` and pick an axis: `{ key: "margin", type: "line", axis: "right" }` draws a line on a right-hand axis while the other series stay bars on the left. Bar series always draw first (grouped, or stacked when `stacked: true`), then line series on top. The right axis appears only when a series uses it; its own nice ticks are computed from those series' values, `y2-title` / `y2-min` / `y2-max` title and bound it (all three are rejected when no series sets `axis: "right"`), and bar series on it include 0 like the left axis. Only the left axis draws gridlines. The legend and generated alt text mark right-axis series with " (right axis)". The usual combo is revenue bars with a margin-percent line:
+
+```js
+chart({
+  type: "bar",
+  data: "{{monthly}}",
+  x: "month",
+  y: [
+    { key: "revenue", label: "Revenue" },
+    { key: "margin", label: "Margin %", type: "line", axis: "right" },
+  ],
+  "y2-title": "Margin %",
+  "y2-min": 0,
+  "y2-max": 40,
+  width: 480,
+  height: 220,
+});
+// sampleData: { monthly: [{ month: "Jan", revenue: 50000, margin: 32 }, ...] }
+```
+
+**Bad data does not fail the render.** If `data` does not resolve to an array (a typo in the `{{path}}`, a missing key), the chart draws "No data" and `/preview` returns an `invalid-chart-data` template warning naming the chart. Check `templateWarnings` after a preview.
+
+**Accessibility.** When `alt` is omitted, the `/Alt` is generated from the data: the chart type, title, series names and every plotted value (e.g. `Bar chart: Revenue. Jan: 5,000; Feb: 6,200.`), capped at 60 categories. Scatter plots list `(x, y)` pairs per series, capped at 60 points per series (e.g. `Scatter plot: Load vs time. Response time: (12, 210); (40, 380).`). Pass `alt` only when a summary serves the reader better than the full value list. `alt` accepts `{{template}}` placeholders.
+
+**Sizing.** Charts do not scale to their container. Give `width` a value that fits the column (e.g. about 230pt for half of an A4 page with default margins). Everything is drawn inside the `width` x `height` box: category labels are thinned to every n-th label when they would collide, long labels are truncated, a legend that does not fit ends in "+N more", and a box too small for any plot draws "Chart too small" with a warning.
+
+**Loops.** `chart()` works inside `each()`; `"{{item.series}}"` binds per iteration.
+
+**Not supported:** per-point labels. For those, draw with `vector()`, or use a Mermaid `xychart-beta` block in Markdown.
+
+---
+
 ## Grid + Colspan (Table-Aligned Totals)
 
 When a `table()` and `totals()` share the same `cols`, totals rows automatically align with the data table columns using grid+colspan. Here's how it works under the hood:
@@ -792,7 +976,10 @@ engine handles it.
 > (`fontSize`, `fontWeight`, `backgroundColor`) produces
 > `unknown-style-property` warnings and the styles **will not apply** — the
 > element renders with the default instead. Always quote kebab-case keys:
-> `{ "font-size": 12 }`, not `{ fontSize: 12 }`.
+> `{ "font-size": 12 }`, not `{ fontSize: 12 }`. There is no `style:`
+> wrapper key — write `col({ "font-size": 12 }, ...)`, never nest the
+> properties under a `style` key; the wrapper form is ignored
+> and the validator reports `unknown-style-property "style"`.
 
 Available in inline style objects (e.g. `col({ "font-size": 12, width: "50%" }, ...)` — kebab-case, not `fontSize`):
 
@@ -829,6 +1016,7 @@ Available in inline style objects (e.g. `col({ "font-size": 12, width: "50%" }, 
 | `widows`             | number — typical: 1-3; default: 1                                                                 |
 | `min-presence-ahead` | number (pt) — typical: 30-80. Headings: 40-60.; default: 0                                        |
 | `opacity`            | number, 0-1                                                                                       |
+| `overflow`           | `"visible"`, `"hidden"` — default: "visible"                                                      |
 | `position`           | `"relative"`, `"absolute"` — default: "relative"                                                  |
 | `top`                | number (pt)                                                                                       |
 | `left`               | number (pt)                                                                                       |
@@ -838,6 +1026,15 @@ Available in inline style objects (e.g. `col({ "font-size": 12, width: "50%" }, 
 | `transform`          | { rotate?: number (degrees), translate?: [x, y] } — applied around the element centre             |
 
 <!-- catalog:style-properties-table:end -->
+
+> **No directional variants.** Only the properties in the table above
+> exist. There is no `margin-top` / `margin-right` / `margin-bottom` /
+> `margin-left`, and no `padding-top` / `padding-right` / `padding-bottom`
+> / `padding-left`. Per-side spacing is the box form:
+> `margin: [top, right, bottom, left]` / `padding: [t, r, b, l]` (or a
+> single number for all four sides). There is also no `gap` style
+> property — vertical spacing between elements is the `gap(height?)`
+> function.
 
 Units are points (1pt = 1/72 inch). A4 = 595 x 842pt.
 
@@ -987,21 +1184,19 @@ they don't pollute the tagged-PDF structure tree.
 // Diagonal PAID stamp on the first page, top-right corner
 text(
   {
-    style: {
-      position: "absolute",
-      top: 80,
-      right: 40,
-      width: 160,
-      opacity: 0.35,
-      transform: { rotate: -18 },
-      "font-size": 36,
-      "font-weight": "bold",
-      color: "#b00020",
-      border: 3,
-      "border-color": "#b00020",
-      padding: [6, 12],
-      align: "center",
-    },
+    position: "absolute",
+    top: 80,
+    right: 40,
+    width: 160,
+    opacity: 0.35,
+    transform: { rotate: -18 },
+    "font-size": 36,
+    "font-weight": "bold",
+    color: "#b00020",
+    border: 3,
+    "border-color": "#b00020",
+    padding: [6, 12],
+    align: "center",
   },
   s("PAID")
 );
@@ -1009,19 +1204,17 @@ text(
 // Full-page DRAFT watermark repeated on every page
 text(
   {
-    style: {
-      position: "absolute",
-      top: 360,
-      left: 100,
-      width: 400,
-      opacity: 0.12,
-      transform: { rotate: -30 },
-      "font-size": 120,
-      "font-weight": "bold",
-      color: "#000000",
-      align: "center",
-      "page-repeat": true,
-    },
+    position: "absolute",
+    top: 360,
+    left: 100,
+    width: 400,
+    opacity: 0.12,
+    transform: { rotate: -30 },
+    "font-size": 120,
+    "font-weight": "bold",
+    color: "#000000",
+    align: "center",
+    "page-repeat": true,
   },
   s("DRAFT")
 );
@@ -1049,8 +1242,8 @@ trims 10pt from all four edges without affecting the footer bar itself.
 - **Whitespace:** 30-40pt page padding. 5-10pt between major sections. 1-2pt between related items (address lines, label-value rows).
 - **Alignment:** Right-align all numbers and monetary values. Left-align all text. When the original shows a company/sender address in the top-right, right-align that entire block by putting "align": "right" on the PARENT COLUMN (not on spans or classes). Right-alignment must always be set on the column container -- it is inherited by children.
 - **Vertical space budget:** A4 = 842pt. After page padding (30pt x 2) and footer (~25pt), you have ~757pt of usable content height. BEFORE finalizing, estimate total height: count sections, multiply by average height (~60-80pt for text sections, ~25pt per table row), add all inter-section margins. If the estimate exceeds 757pt, reduce section margins to 5-8pt and use smaller font sizes (body 9pt, table cells 8pt).
-- **Page efficiency:** Keep spacing TIGHT. A single-page original must render as single-page. Err on the side of too little spacing rather than too much. For documents with 7+ top-level sections, use 5-8pt inter-section margins (NOT 10-15pt). Every point counts.
-- **Logos:** Reference an uploaded asset via `img({ src: "asset:<id>", alt: "<company> logo" })`. Users upload logos / signatures / stamps once at `/settings/assets` and reference them by stable opaque id. SVG and PNG/JPEG all work; bytes are owner-scoped (someone else's `asset:<id>` resolves to a placeholder). Set explicit `width` (80–120pt for invoice headers) so the image scales predictably. If no asset is available, fall back to a text placeholder at 14–16pt max — the logo is a small brand mark, not a giant heading. Avoid raw `https://` image URLs: they break when the host goes down and add latency to every render.
+- **Page efficiency:** A single-page original must render as a single page, so default to tight spacing: 5-8pt inter-section margins for documents with 7+ top-level sections, 5-10pt otherwise.
+- **Logos:** Reference an uploaded asset via `img({ src: "asset:<id>", alt: "<company> logo", width: 120, height: 48 })`. The object form also accepts `{ src, alt }` without dimensions when the asset size is unknown; `alt` is the accessible description. Users upload logos / signatures / stamps once at `/settings/assets` and reference them by stable opaque id. SVG and PNG/JPEG all work; bytes are owner-scoped (someone else's `asset:<id>` resolves to a placeholder). Set explicit `width` (80–120pt for invoice headers) so the image scales predictably. If no asset is available, fall back to a text placeholder at 14–16pt max — the logo is a small brand mark, not a giant heading. Avoid raw `https://` image URLs: they break when the host goes down and add latency to every render.
 - **Totals alignment:** When the original shows totals labels and values in separate columns aligned with the table, ALWAYS use M6 (row with empty + label + value columns). Only use M7 (combined) when the original clearly shows "Label: $value" as a single right-aligned text block.
 <!-- catalog:design-principles:end -->
 
@@ -1070,7 +1263,7 @@ trims 10pt from all four edges without affecting the footer bar itself.
 
 ## DSL Traps
 
-Concrete shapes the builder accepts that tripped up earlier versions — most are now fixed, but the safe spelling is still worth knowing.
+Builder call shapes that look valid but fail or render wrong, with the safe spelling for each.
 
 - **`s()` 3-arg form works:** `s(".label", { "font-size": 10 }, "Hello")` merges the style into the span's `attr`. When in doubt, prefer the inline form `s({ class: "label", "font-size": 10 }, "Hello")` — both are equivalent. Never write `s("italic", "…")` / `s("bold", "…")` / `s("mono", "…")` / `s("link", "…")` — those throw. Use the helpers `italic(...)` / `bold(...)` / `mono(...)` / `link(...)`, or the class form `s(".italic", "…")`.
 - **`col(width, attr, ...kids)` / `r(width, attr, ...kids)` work:** `col("40%", { align: "right" }, s("x"))` is valid. `col({ width: "40%", align: "right" }, s("x"))` is also valid and reads more clearly — pick the form that matches the rest of the file.
@@ -1078,9 +1271,11 @@ Concrete shapes the builder accepts that tripped up earlier versions — most ar
 - **Border shorthand:** prefer the string form `border: "1px solid #000"` or the tuple form `border: [1, 1, 1, 1]` + separate `"border-color": "#000"`. **Do not** write `border: [1, "solid", "#000"]` — that mixes widths and colours and renders silently wrong.
 - **Percent grids must sum to 100%.** Only relevant if you're using percents — line-item tables should use `["1fr", "auto", "auto", …]` instead, which never needs to sum. When you do use percents (layout panels), mismatches become `grid-sum-mismatch` warnings; e.g. a 5-column percent grid should be `["40%", "20%", "10%", "10%", "20%"]`, not `["40%", "8%", "10%", "16%", "16%"]`.
 - **Preserve input data types.** If the input `sampleData.items[0].qty` is a number, keep it a number in the generated `sampleData`. Stringifying numerics (e.g. `qty: "2"` instead of `qty: 2`) breaks `| currency` / `| number` filters and arithmetic in expressions.
-- **No ES default parameters in arrows.** The DSL executor does not support default-parameter syntax — `(s, n = 8) => s.padStart(n)` throws `Cannot evaluate AssignmentPattern`. Inline the constant (`(s) => s.padStart(8)`) or hoist a separate helper. Rest params are fine; destructured defaults are not.
+- **No ES default parameters in arrows.** The DSL executor does not support default-parameter syntax — `(s, n = 8) => …` throws `Cannot evaluate AssignmentPattern`. Drop the default and pass the value at each call site, or hoist a separate helper. (String methods like `padStart` are unavailable in DSL scripts too — pre-format values in `sampleData`.) Rest params (`...args`) are not supported either — declare each parameter explicitly (spread at the call site, e.g. `f(...[1, 2])`, still works).
+- **DSL scripts run a restricted JS subset.** No `for` / `while` / `do-while` / `for-of` / `for-in` loops (repeat content with `each("x in xs", …)` over a `sampleData` array, written out literally); no `switch` (use `if`/`else`, or `when()` / `elseWhen()` / `otherwise()` for conditional content); no method calls such as `xs.map(…)` or `s.padStart(…)` (use `each()` for repetition, `| currency` / `| number` filters or pre-formatted `sampleData` for formatting); no `Array.from` / `Array.of` / `Object.*` / `JSON.*` globals (shape `sampleData` with literals and read fields directly); no destructuring, no rest params (`...args` — declare parameters explicitly), `try`/`catch`, `++`/`--` (write `i = i + 1`), `new`, or optional chaining `?.` (use a ternary or `&&` guard). What DOES work: `const`/`let`, `if`/`else`, ternaries, arrow functions and `function` declarations, template literals, spread (at call sites and in literals), property reads (`item.name`, `rows[0]`, `xs.length`), and the builder functions. Violations throw `DSL execution failed: …` with the supported alternative named.
 - **`transform` is an object, not a CSS string.** Write `transform: { rotate: 45 }` or `transform: { rotate: -18, translate: [0, 20] }` — **not** `transform: "rotate(45deg)"`. The string form is silently ignored (rotation falls back to 0°). See §Stamps & watermarks for the full spec. Also: `transform` only applies to `position: "absolute"` elements; setting it on an in-flow row/column does nothing.
 - **`pageNum()` returns an array, not a single node.** It expands to `["Page ", thisPage(), " of ", totalPages()]` — four kids. Wrapping it in `s({...}, pageNum())` makes the span's `kids[0]` an array and fails the catalog validator with `"span" has an array in kids[0]`. Always use `ftrPages("…footer text…")` (the helper spreads the kids correctly) or, if you genuinely need a custom footer, spread: `s({...}, ...pageNum())`.
+- **Never pass a style object or an array as a _child_.** `s("{{x}}", { align: "right" })` puts the object into the span's `kids` and fails validation with `invalid-child` — a style object only works as the FIRST arg (`s({ align: "right" }, "{{x}}")`). The same rule covers tuples: each `table()` cell must be `[content, width, align?]`, not bare `content` (see `object is not iterable` below). Arrays of nodes must be spread — `s({...}, ...pageNum())`, never `s({...}, pageNum())`. (`each()` / `when()` already flatten their kids, so no spread is needed there.)
 
 ## Common Errors & Fixes
 
