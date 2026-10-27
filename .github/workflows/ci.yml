@@ -45,3 +45,6 @@ jobs:
           node dist/index.js --help
           node dist/index.js skill > /tmp/skill.md
           test -s /tmp/skill.md
+          # The baked skill must be the snapshot markdown byte for byte: a
+          # transform/truncation in bake-skill.mjs would otherwise ship silently.
+          cmp skills/pdf-template-author.md /tmp/skill.md
