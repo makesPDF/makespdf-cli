@@ -272,8 +272,8 @@ Output ONLY valid JavaScript. No markdown fences, no explanations. The script mu
 
 ### Script shape
 
-The script is data, not a program: only `const` declarations at the top
-level — no `for`/`while` loops, no `if` statements, no bare identifiers.
+The script is data, not a program: only `const`/`let` declarations at the
+top level — no loops, no `switch`, no bare identifiers.
 Five shapes cover nearly every failure:
 
 - **Repeat with `each()`, not a loop.** `each("book in books", col(...))`
@@ -351,7 +351,8 @@ Options: `{ size, title, author, subject, keywords, lang, styles, padding }`
 - `lang`: Document language as a BCP 47 tag (`"ja"`, `"zh-Hant"`, `"ko"`...). Sets the PDF `/Lang`
   and picks the built-in CJK font — Chinese, Japanese and Korean text renders with no font
   upload. Without it the script is inferred from the text (kana -> Japanese, Hangul -> Korean,
-  else Simplified Chinese). See `/skills/pdf-fonts.md`.
+  else Simplified Chinese).
+  See [`/skills/pdf-fonts.md`](https://makespdf.com/skills/pdf-fonts.md).
 - `styles`: Custom style classes to merge with the standard kit
 - `padding`: Page padding in points (default 30)
 
@@ -1176,6 +1177,12 @@ Supported style keys: `position`, `top`, `left`, `right`, `bottom`, `width`,
 the element centre), `page-repeat: true` (clone onto every page for
 watermarks).
 
+`translate` is applied in the element's own frame **before** the rotation —
+CSS transform-list order, `transform: rotate(θ) translate(dx, dy)` — so the
+offset is carried around by the rotation: `{ rotate: 30, translate: [40, 60] }`
+shifts the stamp by the rotated vector (about `+4.6, +72`), not by
+`+40, +60`. Use `top` / `left` when you want a plain page-space offset.
+
 Absolutes must live inside a `<page>` ancestor (or at doc-root for
 `page-repeat` watermarks). They are rendered as PDF `/Artifact` content so
 they don't pollute the tagged-PDF structure tree.
@@ -1487,8 +1494,8 @@ Write the extracted data down in this shape before drafting — it's compact, li
 ### Step 6 — Preview, validate, compare, iterate
 
 ```bash
-makespdf preview template.dsl -o draft.pdf   # render
-makespdf validate template.dsl               # structural + a11y issues
+makespdf preview template.js -o draft.pdf     # render
+makespdf validate template.js                 # structural + a11y issues
 ```
 
 Then run a three-way compare against the original:
