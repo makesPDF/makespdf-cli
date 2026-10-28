@@ -272,8 +272,9 @@ Output ONLY valid JavaScript. No markdown fences, no explanations. The script mu
 
 ### Script shape
 
-The script is data, not a program: only `const`/`let` declarations at the
-top level — no loops, no `switch`, no bare identifiers.
+The script is data, not a program: declare with `const`/`let` at the
+top level — no loops, no `switch`, no bare identifiers. A top-level
+`if`/`else` or ternary is fine; use `when()` for conditional _content_.
 Five shapes cover nearly every failure:
 
 - **Repeat with `each()`, not a loop.** `each("book in books", col(...))`
