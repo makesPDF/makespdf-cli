@@ -1,5 +1,11 @@
 # @makespdf/cli
 
+## 0.2.2
+
+### Patch Changes
+
+- 9283fb1: `makespdf --version` now prints the installed version. It always printed `0.1.0`.
+
 ## 0.2.1
 
 ### Patch Changes
