@@ -1089,10 +1089,12 @@ A4 portrait has ~535pt of usable row width. With 6+ columns at the default
 body size (9–10pt), cells start wrapping mid-word and headers look cramped.
 Options, in order of preference:
 
-1. **Drop the table font size to 8pt** via a custom class. Extend the kit:
-   `doc({ styles: { ".t-dense": { extend: ".table-cell", "font-size": 8 }, ".t-dense-h": { extend: ".table-header", "font-size": 8 } } }, ...)`,
-   then wrap narrow-column values with a span using that class, or pass
-   `{ "font-size": 8 }` inline to the cell content.
+1. **Drop the table font size to 8pt** via a custom class:
+   `doc({ styles: { ".t-dense": { "font-size": 8 } } }, ...)`, then put it on
+   the cell content with `[s(".t-dense", "{{item.qty}}"), "auto"]`, or pass
+   `{ "font-size": 8 }` inline. Don't extend `.table-cell` or `.table-header`
+   here: the cell already has those styles, so the padding and border would
+   apply twice.
 2. **Switch to landscape** — `doc({ size: "A4", ... })` has no landscape
    flag; use `size: "A3"` portrait (~760pt) or reduce page `padding` to 20
    to reclaim ~20pt per side.
@@ -1283,6 +1285,7 @@ Builder call shapes that look valid but fail or render wrong, with the safe spel
 - **DSL scripts run a restricted JS subset.** No `for` / `while` / `do-while` / `for-of` / `for-in` loops (repeat content with `each("x in xs", …)` over a `sampleData` array, written out literally); no `switch` (use `if`/`else`, or `when()` / `elseWhen()` / `otherwise()` for conditional content); no method calls such as `xs.map(…)` or `s.padStart(…)` (use `each()` for repetition, `| currency` / `| number` filters or pre-formatted `sampleData` for formatting); no `Array.from` / `Array.of` / `Object.*` / `JSON.*` globals (shape `sampleData` with literals and read fields directly); no destructuring, no rest params (`...args` — declare parameters explicitly), `try`/`catch`, `++`/`--` (write `i = i + 1`), `new`, or optional chaining `?.` (use a ternary or `&&` guard). What DOES work: `const`/`let`, `if`/`else`, ternaries, arrow functions and `function` declarations, template literals, spread (at call sites and in literals), property reads (`item.name`, `rows[0]`, `xs.length`), and the builder functions. Violations throw `DSL execution failed: …` with the supported alternative named.
 - **`transform` is an object, not a CSS string.** Write `transform: { rotate: 45 }` or `transform: { rotate: -18, translate: [0, 20] }` — **not** `transform: "rotate(45deg)"`. The string form is silently ignored (rotation falls back to 0°). See §Stamps & watermarks for the full spec. Also: `transform` only applies to `position: "absolute"` elements; setting it on an in-flow row/column does nothing.
 - **`pageNum()` returns an array, not a single node.** It expands to `["Page ", thisPage(), " of ", totalPages()]` — four kids. Wrapping it in `s({...}, pageNum())` makes the span's `kids[0]` an array and fails the catalog validator with `"span" has an array in kids[0]`. Always use `ftrPages("…footer text…")` (the helper spreads the kids correctly) or, if you genuinely need a custom footer, spread: `s({...}, ...pageNum())`.
+- **Don't repeat `.table-header` or `.table-cell` on a cell's content.** `table()`, `th()` and `td()` already put those classes on the cell, so `[s(".table-header", "SKU"), "auto"]` applies the padding and border twice. Write `["SKU", "auto"]`. To style the content, use a different class or inline styles: `[s({ color: "#666" }, "SKU"), "auto"]`.
 - **Never pass a style object or an array as a _child_.** `s("{{x}}", { align: "right" })` puts the object into the span's `kids` and fails validation with `invalid-child` — a style object only works as the FIRST arg (`s({ align: "right" }, "{{x}}")`). The same rule covers tuples: each `table()` cell must be `[content, width, align?]`, not bare `content` (see `object is not iterable` below). Arrays of nodes must be spread — `s({...}, ...pageNum())`, never `s({...}, pageNum())`. (`each()` / `when()` already flatten their kids, so no spread is needed there.)
 
 ## Common Errors & Fixes
