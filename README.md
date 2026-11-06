@@ -181,64 +181,15 @@ The CLI is intentionally agent-friendly:
 
 ## Releasing
 
-Releases are published from GitHub Actions via **npm OIDC trusted publishing** — no `NPM_TOKEN` is stored anywhere. The publish step exchanges a short-lived GitHub OIDC token for an npm publish token at the moment of publish, and stamps the package with a SLSA provenance attestation (the "Built and signed on GitHub Actions" badge on npmjs.com).
+Releases are published from GitHub Actions with **npm OIDC trusted publishing**, so no `NPM_TOKEN` is stored anywhere, and each release carries a SLSA provenance attestation (the "Built and signed on GitHub Actions" badge on npmjs.com). The maintainers cut releases.
 
-Version bumping and changelog generation are driven by [**changesets**](https://github.com/changesets/changesets). Every user-visible change lands on main with a changeset file describing the bump type and a short changelog note. When you're ready to release, `pnpm release` consumes the pending changesets, bumps `package.json`, commits, tags, and pushes — the tag push triggers the publish workflow.
-
-### Day-to-day: describe each change
+Version bumps and the changelog come from [**changesets**](https://github.com/changesets/changesets). If your change is user-visible, add a changeset to your pull request:
 
 ```bash
-# After making a user-visible change, run:
 pnpm changeset
-# Interactive — pick patch/minor/major and type the changelog note.
+# Interactive: pick patch/minor/major and type the changelog note.
 # Commit the .changeset/<name>.md file along with your code change.
 ```
-
-### Cutting a release
-
-```bash
-pnpm release
-```
-
-What it does:
-
-1. **Guards** — refuses if the tree is dirty, you're not on main, you're behind origin, or there are no pending changesets.
-2. **Safety gate** — runs `pnpm typecheck`, `pnpm test`, and `pnpm build` before touching versions.
-3. **Bumps versions** — `changeset version` consumes the pending changesets, updates `package.json`, rewrites `CHANGELOG.md`.
-4. **Commits** — creates a `Version X.Y.Z` commit (only `package.json`, `CHANGELOG.md`, `pnpm-lock.yaml`, `.changeset/*`).
-5. **Prompts for confirmation** — last abort window. Everything up to this point is local-only, reversible with `git reset --hard HEAD^`.
-6. **Pushes + tags** — pushes `main`, creates an annotated `vX.Y.Z` tag (via `changeset tag`), pushes tags.
-
-The tag push triggers `.github/workflows/release.yml`, which runs `pnpm exec changeset publish --no-git-tag` inside an OIDC-authorized job. No secrets involved.
-
-### If the release workflow fails
-
-The tag is pushed but publish failed before (or during) the OIDC exchange. Fix, re-tag, re-push — **do not** re-run `pnpm release`, because the pending changesets have already been consumed:
-
-```bash
-# 1. Delete the tag locally and on the remote
-git tag -d v0.1.1
-git push origin :refs/tags/v0.1.1
-
-# 2. Fix the issue, commit on main
-git commit -am "fix(ci): ..."
-git push origin main
-
-# 3. Re-tag HEAD with the SAME version number and re-push
-git tag -a v0.1.1 -m "Version 0.1.1"
-git push origin v0.1.1
-```
-
-### Bootstrap note
-
-Trusted publishing cannot bootstrap a new package name — the first `v0.1.0` must be published manually from a local machine with `npm publish --access public`. After that, the npmjs.com **Settings → Trusted Publisher** panel is configured with:
-
-- Organization: `makesPDF`
-- Repository: `makespdf-cli`
-- Workflow filename: `release.yml` (basename only — not a full path)
-- Environment: (blank)
-
-Every subsequent release goes through the workflow.
 
 ## License
 
