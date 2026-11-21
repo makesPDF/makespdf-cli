@@ -216,8 +216,11 @@ Typical flow for an agent:
 If your environment supports MCP (Model Context Protocol), the whole
 author → render loop is also available as schema-validated tools —
 no hand-built HTTP requests. The remote server lives at
-`https://makespdf.com/api/v1/mcp` (HTTP transport, JSON-RPC over POST)
-and authenticates with the same Bearer API key as the REST API:
+`https://makespdf.com/api/v1/mcp` (HTTP transport, JSON-RPC over POST) and
+accepts either an API key (the same Bearer header as the REST API) or an OAuth
+sign-in: VS Code 1.106+ and Cursor (with `auth.CLIENT_ID` set to
+`https://cursor.com/oauth/mcp-client.json`) sign in by URL with no key, as do
+the Claude clients. The API-key path:
 
 ```sh
 claude mcp add --transport http makespdf \
@@ -225,23 +228,29 @@ claude mcp add --transport http makespdf \
   --header "Authorization: Bearer $MAKESPDF_API_KEY"
 ```
 
-Eleven tools — ten mirroring the REST endpoints used throughout this skill,
-plus `report_feedback` (no REST twin), which reports a problem back to the
-makesPDF team:
+To sign in instead, add the server with no header (`claude mcp add --transport
+http makespdf https://makespdf.com/api/v1/mcp`) and run `/mcp` → Authenticate
+on first use; see https://makespdf.com/docs/mcp for the VS Code and Cursor
+configs.
 
-| Tool                 | Mirrors                         | Billing                          |
-| -------------------- | ------------------------------- | -------------------------------- |
-| `validate_dsl`       | `POST /api/v1/preview/validate` | free                             |
-| `validate_markdown`  | `POST /api/v1/md/validate`      | free                             |
-| `render_dsl_preview` | `POST /api/v1/preview`          | free, watermarked draft          |
-| `save_template`      | `POST /api/v1/templates`        | free                             |
-| `list_templates`     | `GET /api/v1/templates`         | free                             |
-| `get_template`       | `GET /api/v1/templates/:id`     | free                             |
-| `update_template`    | `PUT /api/v1/templates/:id`     | free                             |
-| `delete_template`    | `DELETE /api/v1/templates/:id`  | free                             |
-| `render_template`    | `POST /api/v1/render`           | **billed** — 1 credit / 10 pages |
-| `render_markdown`    | `POST /api/v1/md`               | **billed** — 1 credit / 10 pages |
-| `report_feedback`    | — (no REST twin)                | free                             |
+Twelve tools — eleven mirroring the REST endpoints used throughout this
+skill, plus `report_feedback` (no REST twin), which reports a problem back to
+the makesPDF team:
+
+| Tool                      | Mirrors                         | Billing                          |
+| ------------------------- | ------------------------------- | -------------------------------- |
+| `validate_dsl`            | `POST /api/v1/preview/validate` | free                             |
+| `validate_markdown`       | `POST /api/v1/md/validate`      | free                             |
+| `render_dsl_preview`      | `POST /api/v1/preview`          | free, watermarked draft          |
+| `save_template`           | `POST /api/v1/templates`        | free                             |
+| `list_templates`          | `GET /api/v1/templates`         | free                             |
+| `get_template`            | `GET /api/v1/templates/:id`     | free                             |
+| `update_template`         | `PUT /api/v1/templates/:id`     | free                             |
+| `delete_template`         | `DELETE /api/v1/templates/:id`  | free                             |
+| `render_template`         | `POST /api/v1/render`           | **billed** — 1 credit / 10 pages |
+| `render_markdown`         | `POST /api/v1/md`               | **billed** — 1 credit / 10 pages |
+| `get_render_download_url` | `GET /api/v1/artifacts/:id/pdf` | free                             |
+| `report_feedback`         | — (no REST twin)                | free                             |
 
 Library browsing uses the same template tools: `list_templates` with
 `owner: "library"` to discover curated templates, `get_template` to pull
@@ -254,12 +263,20 @@ instead.
 
 `render_template` produces a real, billable PDF; on the free plan the
 output is watermarked, paid plans render clean. Confirm the layout with
-`render_dsl_preview` (free) before calling it. This document is also
+`render_dsl_preview` (free) before calling it.
+
+Both billed renders return a `downloadUrl` that downloads the PDF with no
+credential of its own — save the render with
+`curl -o document.pdf '<downloadUrl>'` rather than recreating it locally.
+The link expires after 15 minutes; call `get_render_download_url` with the
+render's `artifactId` for a fresh one (artifacts are kept for 7 days).
+
+This document is also
 exposed as an MCP resource (`pdf-template-author`), so you can re-fetch
 it through the MCP connection instead of HTTP.
 
-Setup snippets for Claude Desktop, Cursor, and raw HTTP live at
-[`/docs/mcp`](https://makespdf.com/docs/mcp).
+Setup snippets for Claude Desktop, Claude Code, VS Code, Cursor, and raw HTTP
+live at [`/docs/mcp`](https://makespdf.com/docs/mcp).
 
 <!-- embedded:skip:end -->
 
@@ -376,6 +393,42 @@ Auto-wraps content in a page, separates header/footer to top-level. The **standa
 `.label`, `.body`, `.small`, `.heading`, `.section-heading`, `.table-header`, `.table-cell`, `.table-cell-alt`, `.total-row`, `.footer-bar`
 
 <!-- catalog:standard-style-kit:end -->.
+
+`.heading` and `.section-heading` carry `"not-last": true`, so a heading is never left as the last thing on a page — it moves to the next page with the block after it. To keep a lead-in paragraph with the chart or table it introduces, give the paragraph the same property: `text({ "not-last": true }, s("…"))`.
+
+#### Hybrid e-invoices (Factur-X / ZUGFeRD)
+
+`/render` accepts `options.facturX` to make the PDF a Factur-X / ZUGFeRD
+hybrid invoice: PDF/A-3A (still tagged, PDF/UA-1) with the invoice XML embedded as an
+associated file. `/preview` and `/preview/validate` check the same option (same 400s)
+but `/preview` does not embed it; its response carries
+`X-Factur-X: valid; not embedded, use /api/v1/render`. The caller supplies the XML; makesPDF does not check its EN 16931 or
+XRechnung content, so validate it with a free tool (the KoSIT validator for XRechnung,
+Mustang or the FNFE-MPE tools for Factur-X). Germany requires e-invoices for domestic B2B
+from 2027 (turnover above EUR 800k) and 2028 (all), and ZUGFeRD is an accepted format;
+France accepts Factur-X in its 2026-2027 reform.
+
+- `xml`: CrossIndustryInvoice XML. Well-formed UTF-8, max 1 MB, root element
+  `CrossIndustryInvoice` in namespace `urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100`.
+  DOCTYPE is refused. Failures return 400 with `details`.
+- `profile`: `MINIMUM`, `BASIC WL`, `BASIC`, `EN 16931`, `EXTENDED` or `XRECHNUNG`.
+  MINIMUM and BASIC WL are not valid invoices in Germany.
+- `relationship` (optional): `Data`, `Alternative` or `Source`. Defaults to `Data` for
+  MINIMUM and BASIC WL, `Alternative` otherwise.
+
+```json
+POST /api/v1/render
+{
+  "dsl": "...",
+  "data": { "invoice": { "number": "INV-2026-001" } },
+  "options": {
+    "facturX": {
+      "xml": "<rsm:CrossIndustryInvoice xmlns:rsm=\"urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100\" ...>...</rsm:CrossIndustryInvoice>",
+      "profile": "EN 16931"
+    }
+  }
+}
+```
 
 #### Document-wide style changes — set the cascade root
 
@@ -495,19 +548,46 @@ block inside a span and produces surprising output.
 | `totRow(label, value, bold?, grid?)` | Totals row. Without grid: 60%/25%/15%. With grid: uses colspan to align with table columns    |
 | `totLine(text)`                      | Combined totals line (65% spacer + 35% right-aligned)                                         |
 | `bullet(text)`                       | Bullet point                                                                                  |
+| `list(opts, items)`                  | Tagged list (`/L` `/LI` `/Lbl` `/LBody`) — see [Lists](#lists-list) below.                    |
+
+### Lists (`list()`)
+
+`list(opts, items)` builds a real PDF/UA list: an `/L` container with an `/LI` per item, a `/Lbl` marker and an `/LBody` body, so screen readers announce "list, 3 items". Prefer it to a stack of `bullet()` rows whenever the items are a list. `bullet(text)` is only a bullet-prefixed line with no list structure.
+
+- `opts`: `{}` for bullets; `{ ordered: true }` for `1. 2. 3.` (`start: 3` begins at 3); `{ depth: 1 }` on a nested list picks the next bullet glyph and indent.
+- `items`: `{ content, checked?, children? }[]`. `content` is an array of plain strings and/or inline elements (`s()`, `bold()`, `italic()`, `link()`) — plain strings are wrapped in spans for you. `checked: true | false` makes the item a task (`☑` / `☐`). `children` holds nested `list({ depth: 1 }, …)` calls and renders inside the parent item's `/LBody`.
+
+```js
+list({}, [
+  { content: ["Plain bullet"] },
+  { content: [s("Emphasis: "), bold("works")] },
+]),
+list({ ordered: true }, [{ content: ["First step"] }, { content: ["Second step"] }]),
+list({}, [
+  { content: ["Parent item"], children: [
+    list({ depth: 1 }, [{ content: ["Nested child"] }]),
+  ]},
+]),
+list({}, [
+  { content: ["Done"], checked: true },
+  { content: ["To do"], checked: false },
+]),
+```
+
+Accessibility: no extra work — the builder emits the list roles itself. Put the whole list in the tagged `doc({ tagged: true })` and do not rebuild lists out of `row()` + `s("•")`, which reads as unrelated lines.
 
 ### Organisms
 
-| Function                       | Purpose                                                                                                                                                                                                                                                                                                                  |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `minHdr(title, company)`       | Minimal header (title left, company right). `title`/`company` accept strings or inline Element(s)                                                                                                                                                                                                                        |
-| `lvGrid(pairs[], labelWidth?)` | Label-value grid from `[label, value][]` pairs — label/value accept strings or inline Element(s)                                                                                                                                                                                                                         |
-| `addrs(from, to)`              | Two-column addresses. Each: `{ label, lines[] }`. Labels and each line accept strings or inline Element(s)                                                                                                                                                                                                               |
-| `table(cols, loopExpr, cells)` | Data table with header + loop. `cols`/`cells`: `[content, width?, align?][]` — width and align are optional. Omit width and `table()` picks `auto` for every column, then promotes the widest column to `1fr` so it absorbs surplus (overridable by passing any explicit width). Cell widths inherit from cols by index. |
-| `totals(rows, cols?)`          | Totals section. `rows`: `[label, value, bold?][]`. Labels/values accept strings or Element(s). Pass cols for grid+colspan                                                                                                                                                                                                |
-| `ftrPages(company?)`           | Footer with page numbers (and optional company name — string or Element(s))                                                                                                                                                                                                                                              |
-| `terms(heading, content)`      | Terms/notes block. `heading`/`content` accept strings or inline Element(s) — ideal for prose paragraphs with emphasis                                                                                                                                                                                                    |
-| `sigBlock()`                   | Signature lines (two side-by-side)                                                                                                                                                                                                                                                                                       |
+| Function                       | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `minHdr(title, company)`       | Minimal header (title left, company right). `title`/`company` accept strings or inline Element(s)                                                                                                                                                                                                                                                                                                                                                                  |
+| `lvGrid(pairs[], labelWidth?)` | Label-value grid from `[label, value][]` pairs — label/value accept strings or inline Element(s)                                                                                                                                                                                                                                                                                                                                                                   |
+| `addrs(from, to)`              | Two-column addresses. Each: `{ label, lines[] }`. Labels and each line accept strings or inline Element(s)                                                                                                                                                                                                                                                                                                                                                         |
+| `table(cols, loopExpr, cells)` | Data table with header + loop. `cols`/`cells`: `[content, width?, align?][]` — width and align are optional. To set an align without a width write `null` (or `""`) in the width slot — `["Qty", null, "right"]` (the DSL sandbox has no `undefined`). Omit width and `table()` picks `auto` for every column, then promotes the widest column to `1fr` so it absorbs surplus (overridable by passing any explicit width). Cell widths inherit from cols by index. |
+| `totals(rows, cols?)`          | Totals section. `rows`: `[label, value, bold?][]`. Labels/values accept strings or Element(s). Pass cols for grid+colspan                                                                                                                                                                                                                                                                                                                                          |
+| `ftrPages(company?)`           | Footer with page numbers (and optional company name — string or Element(s))                                                                                                                                                                                                                                                                                                                                                                                        |
+| `terms(heading, content)`      | Terms/notes block. `heading`/`content` accept strings or inline Element(s) — ideal for prose paragraphs with emphasis                                                                                                                                                                                                                                                                                                                                              |
+| `sigBlock()`                   | Signature lines (two side-by-side)                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ### Fillable form fields (AcroForm)
 
@@ -736,7 +816,7 @@ chart({
   type: "scatter",
   data: "{{samples}}",
   x: "load", // numeric x field
-  y: { key: "ms", label: "Response time" },
+  y: [{ key: "ms", label: "Response time" }],
   width: 480,
   height: 220,
   "x-title": "Load",
@@ -766,6 +846,8 @@ chart({
 | `font-size`          | `8`                                     | Axis labels and legend; the title is 1.25x                                                               |
 | `font-family`        | `"Inter"`                               | `"Inter"` or `"Noto Sans"`                                                                               |
 | `alt`                | generated                               | See accessibility below                                                                                  |
+
+**Palettes.** `colors` is an array of colour strings; it may also be a whole-value `"{{path}}"` binding to an array in the data, so one template can take its palette from each render instead of carrying an inline array.
 
 **Values.** Numbers, or numeric strings such as `"$1,200.50"`, `"45%"` or `"(300)"` (a negative). A missing or non-numeric value, including text that only contains digits (`"Q1 2024"`), leaves a gap (a missing bar, a break in the line, a skipped scatter point). Pie charts use the first `y` field only and leave out zero and negative values; they read best with 8 slices or fewer, since the palette repeats after 10. Scatter charts plot a point per row where both `x` and `y` parse as numbers; a row missing either is skipped with a warning. Up to 500 rows and 20 `y` fields are plotted.
 
@@ -898,9 +980,42 @@ r(
 - Children don't need explicit `width` — the grid determines their width
 - The sum of all colspan values should equal the number of grid entries
 
+### Row spans
+
+`rowspan` makes a cell occupy several table rows. It is set on the cell, like `colspan`, and works across a run of consecutive sibling `r({ grid })` rows that share the same `attr.grid` — the grid is required, because the covered rows have no other way to know which columns the span owns. The covered rows simply omit that column's cell. `table()` emits exactly this run, but its cells have no `rowspan` slot, so write the rows by hand when you need a span.
+
+```javascript
+// A 3-column, 3-row table whose first column is one cell spanning all rows.
+// The first row's cell carries rowspan: 3; rows 2 and 3 start one column in.
+col(
+  { class: "table" },
+  r(
+    { grid: ["30%", "40%", "30%"] },
+    col({ rowspan: 3, class: "table-cell" }, s("Group")),
+    col({ class: "table-cell" }, s("A")),
+    col({ class: "table-cell" }, s("1"))
+  ),
+  r(
+    { grid: ["30%", "40%", "30%"] },
+    col({ class: "table-cell" }, s("B")),
+    col({ class: "table-cell" }, s("2"))
+  ),
+  r(
+    { grid: ["30%", "40%", "30%"] },
+    col({ class: "table-cell" }, s("C")),
+    col({ class: "table-cell" }, s("3"))
+  )
+);
+```
+
+- The covered rows grow when the spanning cell's content needs the room, and the cell's background/border covers every row it spans.
+- Rows tied together by a span stay on the same page; if the group is taller than a page it is placed whole and allowed to overflow (the render never fails).
+- `rowspan` clamps to the rows that exist. The catalog validator reports a span that runs past the last row of its run as an error (`rowspan-out-of-range`), an unusable value as `rowspan-invalid`, and a span on a row that is not part of a table run as a warning.
+- In the tagged PDF the origin cell carries `/RowSpan n` (and `/ColSpan n` when it also uses `colspan`).
+
 **Grid token forms:** numbers / `"<n>pt"` (fixed points), `"<n>%"` (percent of row), `"auto"` (sizes to the widest content in that column), `"auto-stretch"` (like `auto`, but the widest such column in the row claims any surplus space — what `table()` writes for omitted widths), and `"<n>fr"` (shares the remaining surplus proportionally — `"1fr"` and `"2fr"` split 1:2). Mix freely: `["120pt", "auto", "1fr"]` pins the first column, sizes the second to its content, and lets the third take whatever's left.
 
-> **Rule for line-item tables: omit widths and let `table()` pick `auto` for every column, with the widest column auto-promoted to absorb surplus.** Equivalently, write `["1fr", "auto", "auto", "auto"]` by hand. Never use `"%"` widths on Qty / Unit Price / Rate / Amount / SKU / Date.
+> **Rule for line-item tables: omit widths and let `table()` pick `auto` for every column, with the widest column auto-promoted to absorb surplus.** To align a column without sizing it, pass `null` (or `""`) in the width slot: `["Qty", null, "right"]`. The same applies to the matching cell and to `totals(rows, cols)`. Equivalently, write `["1fr", "auto", "auto", "auto"]` by hand. Never use `"%"` widths on Qty / Unit Price / Rate / Amount / SKU / Date.
 >
 > The canonical 4-column invoice — Description + three numeric columns — can be written as `[["Description"], ["Qty", undefined, "right"], ["Unit Price", undefined, "right"], ["Amount", undefined, "right"]]`. Same pattern for receipts, quotes, statements, time-tracking tables, anything with a description + numbers shape.
 
@@ -1166,6 +1281,12 @@ External URLs (`link("https://…", "…")`) keep working exactly as before
 — only hrefs starting with `#` resolve to internal destinations.
 Unknown ids fall through as external URIs so broken references are
 visible, not silent.
+
+Link targets are limited to `http`, `https` and `mailto` (plus internal
+`#anchor` links). A link with any other scheme (`javascript:`, `file:`,
+`data:`, a relative path) is drawn as plain text with no clickable
+annotation, and the render reports a `link-scheme-blocked` warning. The
+validate endpoints report the same rule before you render.
 
 ### Stamps & watermarks (absolute positioning)
 
