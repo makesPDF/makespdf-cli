@@ -15,8 +15,8 @@ snapshot:
   (VS Code 1.106+, Cursor) alongside the Bearer API key.
 - **`list(opts, items)`**: tagged `/L` `/LI` `/Lbl` `/LBody` lists, including
   ordered, nested and task-list forms.
-- **Row spans**: `rowspan` on `col({ grid })` rows, with the grid requirement
-  and validator codes documented.
+- **Row spans**: `rowspan` on `col()` cells inside consecutive `r({ grid })`
+  rows, with the grid requirement and validator codes documented.
 - **Factur-X / ZUGFeRD**: `options.facturX` on `/render`, the profile and
   relationship rules, and what `/preview` reports instead.
 - **Tables and headings**: align a column without sizing it (`null` in the
