@@ -574,7 +574,7 @@ list({}, [
 ]),
 ```
 
-Accessibility: no extra work — the builder emits the list roles itself. Put the whole list in the tagged `doc({ tagged: true })` and do not rebuild lists out of `row()` + `s("•")`, which reads as unrelated lines.
+Accessibility: no extra work — the builder emits the list roles itself (`L` / `LI` / `Lbl` / `LBody`), and in-flow content is tagged by default. Keep the whole list in one `list()` call and do not rebuild it out of `r()` + `s("•")`, which reads to a screen reader as unrelated lines rather than a list.
 
 ### Organisms
 
@@ -598,9 +598,9 @@ pre-baked appearance streams; they remain interactive in Adobe Reader,
 Apple Preview, and any modern browser viewer, and they participate in the
 tagged structure tree so screen readers can announce them.
 
-Pair every form template with `tagged: true` on the `doc(...)` so the
-widgets land inside the structure tree (otherwise they're still fillable
-but not accessible). Field `name` must be unique across the document.
+Nothing to opt into: in-flow output is tagged by default, so the widgets
+land inside the structure tree automatically. Field `name` must be unique
+across the document.
 Working sample lives in the makesPDF repo at
 `assets/samples/forms/consent-form-dsl.js` (template) and
 `assets/samples/forms/consent-form-render.pdf` (the rendered output, also
@@ -643,6 +643,22 @@ viewer is free to overwrite it. To pre-fill from `data`, just thread
 Out of scope: `/Sig` digital-signature fields, Acrobat-style JavaScript
 calculations, and radio-button groups (use a `select` instead, or model
 mutually-exclusive choices as a single checkbox per option).
+
+**Rotation: whole quarter-turns only.** An `input` or `select` inside an
+absolute overlay rotated by 90/180/270° is written with a matching `/MK /R`
+(0° needs no key — an absent `/R` means 0, the PDF default). Acrobat
+regenerates the appearance from `/Rect` + `/MK /R` on focus and again on
+commit, so it keeps the field the right way up and at its own size; pdf.js
+never rebuilds the pre-baked `/AP` — it sizes and rotates its HTML editing
+control from `/MK /R`, with the same result. Any other angle has no `/R`
+representation — `/R` must be a multiple of 90 — so those fields are
+**static-only**: the rendered appearance paints correctly, but a viewer that
+regenerates the appearance lays the field out upright inside its enclosing
+rectangle, so typing into it turns the field and stretches it to that box.
+Fractional rotations remain fine for painted content (stamps, watermarks,
+badges); do not put an `input` or `select` in a fractional-rotation overlay.
+Checkboxes are unaffected at every angle — they only swap their pre-baked
+appearances, never regenerate one.
 
 ---
 
@@ -1017,7 +1033,7 @@ col(
 
 > **Rule for line-item tables: omit widths and let `table()` pick `auto` for every column, with the widest column auto-promoted to absorb surplus.** To align a column without sizing it, pass `null` (or `""`) in the width slot: `["Qty", null, "right"]`. The same applies to the matching cell and to `totals(rows, cols)`. Equivalently, write `["1fr", "auto", "auto", "auto"]` by hand. Never use `"%"` widths on Qty / Unit Price / Rate / Amount / SKU / Date.
 >
-> The canonical 4-column invoice — Description + three numeric columns — can be written as `[["Description"], ["Qty", undefined, "right"], ["Unit Price", undefined, "right"], ["Amount", undefined, "right"]]`. Same pattern for receipts, quotes, statements, time-tracking tables, anything with a description + numbers shape.
+> The canonical 4-column invoice — Description + three numeric columns — can be written as `[["Description"], ["Qty", null, "right"], ["Unit Price", null, "right"], ["Amount", null, "right"]]`. Same pattern for receipts, quotes, statements, time-tracking tables, anything with a description + numbers shape. Write `null` for an omitted width, never `undefined` — the DSL sandbox has no `undefined` binding, so naming it fails the script.
 
 Why this matters: sizing a numeric column with a fixed percent (e.g. `"10%"` for Unit Price, `"15%"` for Total) is the most common authoring trap. If any data row's value is wider than the slot, the cell wraps onto two lines with the visible text sitting at the bottom of the row, breaking the column's vertical alignment with its neighbours. The grid coordinator resolves `auto`/`fr`/`auto-stretch` widths consistently across the header, every data row, and the totals strip, so there is no upside to defensive percentages and a real downside when data outgrows them. Percents belong in two-up summary blocks (`["55%", "45%"]`) and other true layout splits — not in line-item tables.
 
