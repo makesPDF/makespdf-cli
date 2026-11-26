@@ -3,9 +3,9 @@
 ---
 
 Refresh the baked-in `pdf-template-author.md` snapshot from the monorepo
-(`lecstor/makespdf` `skills/pdf-template-author.md` on `integration`, blob
-`299af0e5`). `makespdf skill` now prints the corrected skill instead of the
-snapshot taken from `175feb5a`:
+(`lecstor/makespdf` `skills/pdf-template-author.md` on `integration`; git blob
+`807be7c2`, sha256 `299af0e5…`). `makespdf skill` now prints the corrected
+skill instead of the snapshot taken from `175feb5a`:
 
 - **Lists**: the accessibility note no longer tells authors to put the list
   in `doc({ tagged: true })` — in-flow output is tagged by default — and it
