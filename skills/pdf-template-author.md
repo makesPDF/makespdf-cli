@@ -1075,6 +1075,7 @@ Examples:
 - `"{{amount | currency:EUR:de-DE}}"` → `"1.234,50 €"` (German locale)
 - `"Total: {{total | currency}}"` → `"Total: $15,114.00"`
 - `"{{item.qty | number}}"` → `"1,234"`
+- `"{{amount | number | currency}}"` → `"$1,234.50"` (filters chain, applied left to right)
 
 **Doc-wide default.** Pass `currency` in the `doc({ … })` options to set the
 default for bare `{{ x | currency }}` calls — useful for whole-document
