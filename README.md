@@ -118,7 +118,7 @@ makespdf skill > CLAUDE.md
 makespdf skill | pbcopy
 ```
 
-The skill is zero-network — the markdown is embedded in the CLI binary.
+The skill is zero-network — the markdown is embedded in the CLI binary. Its output starts with standard `SKILL.md` frontmatter (`name` and `description`), so `makespdf skill > SKILL.md` is a valid skill file.
 
 ## Configuration
 
