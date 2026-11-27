@@ -1,3 +1,8 @@
+---
+name: pdf-template-author
+description: "Use when authoring, editing, reviewing or debugging a makesPDF PDF template in the builder DSL, or when deciding which makesPDF endpoint, page setup, font, theme or accessibility rule fits a document. Covers the DSL function reference, page and layout primitives, typography and font selection, document metadata, tagged-PDF accessibility rules, Mermaid and graph blocks, the preview/render workflow, and the per-document recipes and library templates to start from."
+---
+
 # PDF Template Author Skill
 
 <!-- embedded:skip:start -->
